@@ -1,0 +1,126 @@
+// Snapshot body. Requires core.jxa concatenated ahead of it. Emits the indented
+// accessibility tree as text. Params: app, maxDepth, maxNodes.
+
+const MAX_NODES = P.maxNodes != null ? P.maxNodes : 1500;
+const MAX_TEXT = 180;
+const pid = resolvePid(TARGET);
+let result;
+
+function boolAttr(el, name) {
+	const v = castAttr(el, name);
+	if (v === undefined) return undefined;
+	try {
+		const u = ObjC.unwrap(v);
+		if (typeof u === "boolean") return u;
+	} catch (e) {}
+	return undefined;
+}
+
+function countAttr(el, name) {
+	const v = castAttr(el, name);
+	if (!v) return undefined;
+	try {
+		return Number(v.count);
+	} catch (e) {
+		return undefined;
+	}
+}
+
+function shortText(s) {
+	if (!s) return undefined;
+	if (s.length <= MAX_TEXT) return s;
+	return s.slice(0, MAX_TEXT - 14) + "… [truncated]";
+}
+
+function statefulRole(role) {
+	return (
+		role === "AXRadioButton" ||
+		role === "AXCheckBox" ||
+		role === "AXSwitch" ||
+		role === "AXToggleButton" ||
+		role === "AXSlider" ||
+		role === "AXTab" ||
+		role === "AXMenuItem" ||
+		role === "AXPopUpButton" ||
+		role === "AXComboBox" ||
+		role === "AXTextField" ||
+		role === "AXTextArea"
+	);
+}
+if (!pid) {
+	result = "ERROR: app not found or not running: " + TARGET;
+} else {
+	const appEl = $.AXUIElementCreateApplication(pid);
+	const enableErr = enableAx(appEl);
+	// Auto-wake when the tree is asleep, then restore focus immediately; the tree
+	// stays alive for a grace period so the traversal below runs off-screen. No-op
+	// when already awake. macOS handles any Space switch and focus is restored.
+	const woke = wakeFocus(appEl);
+	if (woke) restoreFocus(woke);
+	else if (enableErr === 0) delay(0.5);
+
+	const appName = str(castAttr(appEl, "AXTitle")) || TARGET;
+	const lines = ["App: " + appName + " (pid " + pid + ")"];
+	const res = walkTree(appEl, MAX_NODES, function (el, depth, idx) {
+		const role = str(castAttr(el, "AXRole"));
+		const fr = friendly(role);
+		const roleDescription = str(castAttr(el, "AXRoleDescription"));
+		const label = shortText(nodeLabel(el, role));
+		const value = shortText(str(castAttr(el, "AXValue")));
+		const help = shortText(str(castAttr(el, "AXHelp")));
+		const identifier = shortText(str(castAttr(el, "AXIdentifier")));
+		const flags = [];
+		if (isSettable(el, "AXValue")) flags.push("settable");
+		const focused = boolAttr(el, "AXFocused");
+		if (focused === true) flags.push("focused");
+		const enabled = boolAttr(el, "AXEnabled");
+		if (enabled === false) flags.push("disabled");
+		const selected = boolAttr(el, "AXSelected");
+		if (selected === true) flags.push("selected");
+		const expanded = boolAttr(el, "AXExpanded");
+		if (expanded === true) flags.push("expanded");
+		else if (expanded === false && (role === "AXDisclosureTriangle" || role === "AXMenuButton" || role === "AXPopUpButton")) flags.push("collapsed");
+		const modal = boolAttr(el, "AXModal");
+		if (modal === true) flags.push("modal");
+		const marked = str(castAttr(el, "AXMenuItemMarkChar"));
+		if (marked) flags.push("marked");
+		const selectedChildren = countAttr(el, "AXSelectedChildren");
+		if (selectedChildren > 0) flags.push("selected-children:" + selectedChildren);
+		const selectedRows = countAttr(el, "AXSelectedRows");
+		if (selectedRows > 0) flags.push("selected-rows:" + selectedRows);
+		let url;
+		const u = castAttr(el, "AXURL");
+		if (u) {
+			try {
+				url = ObjC.unwrap(u.absoluteString);
+			} catch (e) {}
+		}
+		const placeholder = shortText(str(castAttr(el, "AXPlaceholderValue")));
+		const selectedText = shortText(str(castAttr(el, "AXSelectedText")));
+		const acts = actionNames(el).filter(function (a) {
+			return a !== "AXPress";
+		});
+		let line = "  ".repeat(depth) + idx + " " + fr;
+		if (flags.length) line += " (" + flags.join(", ") + ")";
+		if (label) line += " " + label;
+		if (value && (value !== label || statefulRole(role)) && role !== "AXStaticText") line += " Value: " + value;
+		if (placeholder) line += " Placeholder: " + placeholder;
+		if (selectedText) line += " Selected Text: " + selectedText;
+		if (url) line += " URL: " + url;
+		if (roleDescription && roleDescription !== fr && roleDescription !== label && role !== "AXGroup") line += " Role: " + shortText(roleDescription);
+		if (help && help !== label) line += " Help: " + help;
+		if (identifier) line += " Identifier: " + identifier;
+		if (marked) line += " Mark: " + shortText(marked);
+		if (acts.length) line += " Secondary Actions: " + acts.join(", ");
+		lines.push(line);
+	});
+
+	if (res.windows === 0) {
+		lines.push(
+			"(no windows exposed via accessibility — the app likely has no open window. Use screenshot: true for a visual fallback.)",
+		);
+	}
+	if (res.truncated) lines.push("... [truncated at " + MAX_NODES + " nodes]");
+	result = lines.join("\n");
+}
+result;

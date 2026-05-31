@@ -1,0 +1,76 @@
+// Text selection. Requires core.jxa concatenated ahead of it. Params: app,
+// index, text, prefix, suffix, selection ('text' | 'cursor_before' |
+// 'cursor_after'), maxDepth. Returns JSON.
+
+const TARGET_INDEX = P.index;
+const MAX_NODES = TARGET_INDEX + 50;
+const TARGET_TEXT = String(P.text || "");
+const PREFIX = P.prefix != null ? String(P.prefix) : null;
+const SUFFIX = P.suffix != null ? String(P.suffix) : null;
+const MODE = P.selection || "text";
+
+function rangeValue(location, length) {
+	const range = $.NSMakeRange(location, length);
+	return $.AXValueCreate($.kAXValueCFRangeType, range);
+}
+
+function matchOffset(value) {
+	let start = 0;
+	let found = -1;
+	let matches = 0;
+	while (true) {
+		const i = value.indexOf(TARGET_TEXT, start);
+		if (i < 0) break;
+		start = i + 1;
+		if (PREFIX !== null && value.slice(Math.max(0, i - PREFIX.length), i) !== PREFIX) continue;
+		if (SUFFIX !== null && value.slice(i + TARGET_TEXT.length, i + TARGET_TEXT.length + SUFFIX.length) !== SUFFIX) continue;
+		found = i;
+		matches++;
+	}
+	if (matches === 1) return { ok: true, offset: found };
+	if (matches === 0) return { ok: false, error: "text not found" };
+	return { ok: false, error: "text is ambiguous; provide prefix or suffix" };
+}
+
+const pid = resolvePid(TARGET);
+let result;
+if (!pid) {
+	result = JSON.stringify({ ok: false, error: "app not found or not running: " + TARGET });
+} else {
+	const appEl = $.AXUIElementCreateApplication(pid);
+	enableAx(appEl);
+	let found = null;
+	walkTree(appEl, MAX_NODES, function (el, depth, idx) {
+		if (idx === TARGET_INDEX) {
+			found = el;
+			return "stop";
+		}
+	});
+	if (!found) {
+		result = JSON.stringify({ ok: false, error: "index " + TARGET_INDEX + " not found. Re-run get_app_state." });
+	} else {
+		const value = str(castAttr(found, "AXValue")) || "";
+		const m = matchOffset(value);
+		if (!m.ok) {
+			result = JSON.stringify({ ok: false, error: m.error });
+		} else {
+			let location = m.offset;
+			let length = TARGET_TEXT.length;
+			if (MODE === "cursor_before") length = 0;
+			else if (MODE === "cursor_after") {
+				location = m.offset + TARGET_TEXT.length;
+				length = 0;
+			} else if (MODE !== "text") {
+				result = JSON.stringify({ ok: false, error: "unknown selection mode: " + MODE });
+			}
+			if (!result) {
+				const e = $.AXUIElementSetAttributeValue(found, $("AXSelectedTextRange"), rangeValue(location, length));
+				result =
+					e === 0
+						? JSON.stringify({ ok: true, message: MODE === "text" ? "selected text" : "placed cursor", index: TARGET_INDEX, location: location, length: length })
+						: JSON.stringify({ ok: false, error: "set selection failed: " + axErr(e) });
+			}
+		}
+	}
+}
+result;

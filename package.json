@@ -1,0 +1,65 @@
+{
+  "name": "@onixhdz/computer-use-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "macOS computer-use automation library and MCP server.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "keywords": [
+    "mcp",
+    "computer-use",
+    "macos",
+    "accessibility"
+  ],
+  "license": "MIT",
+  "author": "onixhdz <onixhdz@atomsight.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/onixhdz/computer-use-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/onixhdz/computer-use-mcp/issues"
+  },
+  "homepage": "https://github.com/onixhdz/computer-use-mcp#readme",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "computer-use-mcp": "dist/bin/computer-use-mcp.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "bun run clean && bunx tsc -p tsconfig.build.json && cp -R jxa dist/jxa && chmod +x dist/bin/computer-use-mcp.js",
+    "prepack": "bun run build",
+    "test": "bun test index.test.ts",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "format": "bunx prettier --write .",
+    "format:check": "bunx prettier --check .",
+    "lint": "bun run typecheck && bun run format:check",
+    "pack:dry": "bun pm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^25.9.1",
+    "prettier": "^3.6.2",
+    "typescript": "^6.0.3"
+  }
+}

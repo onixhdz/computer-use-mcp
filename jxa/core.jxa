@@ -1,0 +1,349 @@
+// Shared JXA core for the AX C-API tools. Concatenated ahead of app-state.jxa,
+// action.jxa, and keys.jxa, which provide the trailing `result` expression.
+// The caller prepends a `const P = {...}` params literal (built with
+// JSON.stringify, sent via stdin) ahead of this file — so values like typed
+// text never touch the process environment or argv. This file stays static and
+// editor-highlightable.
+//
+// Bridge notes: AXUIElementCopyAttributeValue returns a CFTypeRef through a
+// Ref(), which must go through ObjC.castRefToObject to be usable.
+
+ObjC.import("ApplicationServices");
+ObjC.import("AppKit");
+ObjC.import("CoreGraphics");
+
+const TARGET = P.app;
+const MAX_DEPTH = P.maxDepth != null ? P.maxDepth : 40;
+
+function castAttr(el, name) {
+	const out = Ref();
+	const e = $.AXUIElementCopyAttributeValue(el, $(name), out);
+	if (e !== 0) return undefined;
+	return ObjC.castRefToObject(out[0]);
+}
+
+function isSettable(el, name) {
+	const out = Ref();
+	const e = $.AXUIElementIsAttributeSettable(el, $(name), out);
+	return e === 0 && ObjC.unwrap(out[0]) === true;
+}
+
+function actionNames(el) {
+	const out = Ref();
+	const e = $.AXUIElementCopyActionNames(el, out);
+	if (e !== 0) return [];
+	const arr = ObjC.castRefToObject(out[0]);
+	if (!arr) return [];
+	const r = [];
+	const c = Number(arr.count);
+	for (let i = 0; i < c; i++) r.push(ObjC.unwrap(arr.objectAtIndex(i)));
+	return r;
+}
+
+function str(v) {
+	if (v === undefined || v === null) return undefined;
+	try {
+		const u = ObjC.unwrap(v);
+		if (typeof u === "string") {
+			const s = u.trim();
+			return s.length ? s : undefined;
+		}
+		if (typeof u === "number" || typeof u === "boolean") return String(u);
+	} catch (e) {}
+	return undefined;
+}
+
+const ROLE = {
+	AXButton: "button",
+	AXTextField: "text field",
+	AXTextArea: "text area",
+	AXStaticText: "text",
+	AXPopUpButton: "pop up button",
+	AXMenuButton: "menu button",
+	AXWebArea: "HTML content",
+	AXGroup: "container",
+	AXSplitGroup: "container",
+	AXScrollArea: "scroll area",
+	AXList: "content list",
+	AXLink: "link",
+	AXHeading: "heading",
+	AXImage: "image",
+	AXTabGroup: "tab group",
+	AXRadioButton: "radio button",
+	AXCheckBox: "checkbox",
+	AXMenuBar: "menu bar",
+	AXMenu: "menu",
+	AXMenuItem: "menu item",
+	AXMenuBarItem: "menu bar item",
+	AXToolbar: "toolbar",
+	AXSlider: "slider",
+	AXTab: "tab",
+	AXCell: "cell",
+	AXRow: "row",
+	AXColumn: "column",
+	AXTable: "table",
+	AXOutline: "outline",
+	AXComboBox: "combo box",
+	AXCloseButton: "close button",
+	AXMinimizeButton: "minimize button",
+	AXFullScreenButton: "full screen button",
+	AXWindow: "window",
+	AXDisclosureTriangle: "disclosure triangle",
+};
+
+function friendly(role) {
+	if (!role) return "element";
+	if (ROLE[role]) return ROLE[role];
+	return role
+		.replace(/^AX/, "")
+		.replace(/([a-z])([A-Z])/g, "$1 $2")
+		.toLowerCase();
+}
+
+function nodeLabel(el, role) {
+	let label = str(castAttr(el, "AXDescription")) || str(castAttr(el, "AXTitle")) || str(castAttr(el, "AXLabel"));
+	if (!label && role === "AXStaticText") label = str(castAttr(el, "AXValue"));
+	return label;
+}
+
+function resolvePid(t) {
+	if (/^[0-9]+$/.test(String(t))) return parseInt(t, 10);
+	const apps = $.NSWorkspace.sharedWorkspace.runningApplications;
+	const n = Number(apps.count);
+	let byName = 0;
+	for (let i = 0; i < n; i++) {
+		const a = apps.objectAtIndex(i);
+		const bid = str(a.bundleIdentifier);
+		const name = str(a.localizedName);
+		let path;
+		try {
+			path = str(a.bundleURL.path);
+		} catch (e) {}
+		if (bid && bid === t) return a.processIdentifier;
+		if (path && path === t) return a.processIdentifier;
+		if (name && name === t && !byName) byName = a.processIdentifier;
+	}
+	return byName;
+}
+
+function coerce(v) {
+	if (v === "true") return $.NSNumber.numberWithBool(true);
+	if (v === "false") return $.NSNumber.numberWithBool(false);
+	if (/^-?\d+(\.\d+)?$/.test(v)) return $.NSNumber.numberWithDouble(parseFloat(v));
+	return $(v);
+}
+
+// Map AX error codes to actionable guidance so failures aren't opaque numbers.
+function axErr(code) {
+	const m = {
+		"-25202": "element no longer valid — re-run app_state",
+		"-25204": "can't complete now (element may be offscreen; try perform_action AXScrollToVisible first)",
+		"-25205": "attribute not supported here",
+		"-25206": "action not supported by this element (for text use set_value or type_text; click only presses buttons/rows/links)",
+		"-25212": "no value",
+	};
+	return m[String(code)] || "code " + code;
+}
+
+function enableAx(appEl) {
+	// Chromium/Electron gate their accessibility tree behind this opt-in. Native
+	// apps return an unsupported error, which callers ignore.
+	return $.AXUIElementSetAttributeValue(appEl, $("AXManualAccessibility"), $.NSNumber.numberWithBool(true));
+}
+
+function windowsReady(appEl) {
+	const w = castAttr(appEl, "AXWindows");
+	if (!w || Number(w.count) === 0) return false;
+	const k = castAttr(w.objectAtIndex(0), "AXChildren");
+	return !!k && Number(k.count) > 0;
+}
+
+function axPid(el) {
+	const out = Ref();
+	return $.AXUIElementGetPid(el, out) === 0 ? Number(out[0]) : 0;
+}
+
+// Frontmost on-screen, layer-0 window for a pid: { id, x, y, w, h } or null. The
+// on-screen list is front-to-back, so the first match is the frontmost window.
+function findWindow(pid) {
+	const arr = ObjC.castRefToObject($.CGWindowListCopyWindowInfo(17, 0));
+	const c = arr ? Number(arr.count) : 0;
+	for (let i = 0; i < c; i++) {
+		const d = arr.objectAtIndex(i);
+		if (Number(ObjC.unwrap(d.objectForKey("kCGWindowOwnerPID"))) !== pid) continue;
+		if (Number(ObjC.unwrap(d.objectForKey("kCGWindowLayer"))) !== 0) continue;
+		const b = d.objectForKey("kCGWindowBounds");
+		return {
+			id: Number(ObjC.unwrap(d.objectForKey("kCGWindowNumber"))),
+			x: Number(ObjC.unwrap(b.objectForKey("X"))),
+			y: Number(ObjC.unwrap(b.objectForKey("Y"))),
+			w: Number(ObjC.unwrap(b.objectForKey("Width"))),
+			h: Number(ObjC.unwrap(b.objectForKey("Height"))),
+		};
+	}
+	return null;
+}
+
+// In-process bitmap of a window — captures backgrounded/occluded windows with no
+// temp file and no raise.
+function windowImage(win) {
+	return $.CGWindowListCreateImage($.CGRectNull, $.kCGWindowListOptionIncludingWindow, win.id, $.kCGWindowImageBoundsIgnoreFraming);
+}
+
+// Exact pixel/point scale measured from the capture itself, so coordinates are
+// correct on any display DPI — not just the main screen. Falls back to the
+// main-screen backing scale when no image is available.
+function windowScale(win, img) {
+	if (img && win.w && win.h) {
+		return { x: Number($.CGImageGetWidth(img)) / win.w, y: Number($.CGImageGetHeight(img)) / win.h };
+	}
+	const s = Number($.NSScreen.mainScreen.backingScaleFactor) || 1;
+	return { x: s, y: s };
+}
+
+// Private SkyLight/CoreGraphics SPIs power focus-without-raise and background
+// pointer delivery. Bound lazily behind a guard so an unsupported macOS simply
+// falls back (AXFrontmost for reads; a clear error for pointer) instead of
+// failing. Offsets/fields are macOS-version-sensitive (validated on macOS 26).
+let skylightState = null; // null = unprobed, true = available, false = unavailable
+function skylightReady() {
+	if (skylightState !== null) return skylightState;
+	try {
+		$.NSBundle.bundleWithPath("/System/Library/PrivateFrameworks/SkyLight.framework").load;
+		ObjC.bindFunction("SLPSPostEventRecordTo", ["int", ["void *", "void *"]]);
+		ObjC.bindFunction("_SLPSGetFrontProcess", ["int", ["void *"]]);
+		ObjC.bindFunction("GetProcessForPID", ["int", ["int", "void *"]]);
+		ObjC.bindFunction("SLEventPostToPid", ["void", ["int", "void *"]]);
+		ObjC.bindFunction("SLEventSetIntegerValueField", ["void", ["void *", "unsigned int", "long long"]]);
+		ObjC.bindFunction("CGEventSetWindowLocation", ["void", ["void *", "double", "double"]]);
+		skylightState = true;
+	} catch (e) {
+		skylightState = false;
+	}
+	return skylightState;
+}
+
+function base64Bytes(bytes) {
+	const t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	let o = "";
+	for (let i = 0; i < bytes.length; i += 3) {
+		const a0 = bytes[i];
+		const a1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+		const a2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+		o += t[a0 >> 2] + t[((a0 & 3) << 4) | (a1 >> 4)] + (i + 1 < bytes.length ? t[((a1 & 15) << 2) | (a2 >> 6)] : "=") + (i + 2 < bytes.length ? t[a2 & 63] : "=");
+	}
+	return o;
+}
+
+// A 248-byte SkyLight event record that sets (0x01) or clears (0x02) input focus
+// for a window id without raising it. Offsets are macOS-version-sensitive
+// (validated on macOS 26).
+function focusRecord(focusByte, wid) {
+	const a = new Array(0xf8).fill(0);
+	a[0x04] = 0xf8;
+	a[0x08] = 0x0d;
+	a[0x3c] = wid & 0xff;
+	a[0x3d] = (wid >> 8) & 0xff;
+	a[0x3e] = (wid >> 16) & 0xff;
+	a[0x3f] = (wid >> 24) & 0xff;
+	a[0x8a] = focusByte;
+	return $.NSData.alloc.initWithBase64EncodedStringOptions($(base64Bytes(a)), 0);
+}
+
+// Give a window input focus without raising it (no z-order change). Returns a
+// restore token, or null when SkyLight is unavailable.
+function focusWithoutRaise(pid, wid) {
+	if (!wid || !skylightReady()) return null;
+	const prev = $.NSMutableData.dataWithLength(8);
+	const tgt = $.NSMutableData.dataWithLength(8);
+	$._SLPSGetFrontProcess(prev.mutableBytes);
+	$.GetProcessForPID(pid, tgt.mutableBytes);
+	$.SLPSPostEventRecordTo(prev.mutableBytes, focusRecord(0x02, wid).bytes);
+	$.SLPSPostEventRecordTo(tgt.mutableBytes, focusRecord(0x01, wid).bytes);
+	return { prev: prev, tgt: tgt, wid: wid };
+}
+
+function endFocusWithoutRaise(token) {
+	if (!token) return;
+	$.SLPSPostEventRecordTo(token.tgt.mutableBytes, focusRecord(0x02, token.wid).bytes);
+	$.SLPSPostEventRecordTo(token.prev.mutableBytes, focusRecord(0x01, 0).bytes);
+}
+
+// Wake an app whose accessibility tree is asleep (Electron/Chromium gate the
+// renderer tree on being focused). If the tree is already populated, do nothing
+// and return 0 — no focus change, no raise. Otherwise prefer focus-without-raise,
+// which wakes the tree with no z-order change; only if that fails do we fall back
+// to an AXFrontmost raise. Returns a restore token consumed by restoreFocus.
+function wakeFocus(appEl) {
+	if (windowsReady(appEl)) return 0;
+	const pid = axPid(appEl);
+	const win = pid ? findWindow(pid) : null;
+	const fwr = win ? focusWithoutRaise(pid, win.id) : null;
+	if (fwr) {
+		for (let i = 0; i < 20; i++) {
+			if (windowsReady(appEl)) break;
+			delay(0.05);
+		}
+		if (windowsReady(appEl)) return { fwr: fwr };
+		endFocusWithoutRaise(fwr);
+	}
+	const prev = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+	const prevPid = prev ? prev.processIdentifier : 0;
+	$.AXUIElementSetAttributeValue(appEl, $("AXFrontmost"), $.NSNumber.numberWithBool(true));
+	for (let i = 0; i < 20; i++) {
+		if (windowsReady(appEl)) break;
+		delay(0.05);
+	}
+	return { prevPid: prevPid };
+}
+
+function restoreFocus(token) {
+	if (!token) return;
+	if (token.fwr) {
+		endFocusWithoutRaise(token.fwr);
+		return;
+	}
+	if (token.prevPid)
+		$.AXUIElementSetAttributeValue($.AXUIElementCreateApplication(token.prevPid), $("AXFrontmost"), $.NSNumber.numberWithBool(true));
+}
+
+// Pre-order DFS over windows then AXChildren. The numbering (idx assigned at
+// entry, depth cap after visit) is the index contract shared by snapshot and
+// actions — do not change it without updating both. visit may return 'stop'.
+function walkTree(appEl, maxNodes, visit) {
+	let count = 0;
+	let stopped = false;
+	let truncated = false;
+	function rec(el, depth) {
+		if (stopped) return;
+		if (count >= maxNodes) {
+			truncated = true;
+			return;
+		}
+		const idx = count++;
+		if (visit(el, depth, idx) === "stop") {
+			stopped = true;
+			return;
+		}
+		if (depth >= MAX_DEPTH) return;
+		const kids = castAttr(el, "AXChildren");
+		if (kids) {
+			const c = Number(kids.count);
+			for (let i = 0; i < c; i++) {
+				rec(kids.objectAtIndex(i), depth + 1);
+				if (stopped) break;
+				if (count >= maxNodes) {
+					truncated = true;
+					break;
+				}
+			}
+		}
+	}
+	const wins = castAttr(appEl, "AXWindows");
+	const wc = wins ? Number(wins.count) : 0;
+	for (let i = 0; i < wc; i++) {
+		rec(wins.objectAtIndex(i), 0);
+		if (stopped) break;
+	}
+	return { count: count, windows: wc, truncated: truncated };
+}

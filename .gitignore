@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+plans/
+coverage/
+*.tsbuildinfo
+
+# Package artifacts
+*.tgz
+*.tar.gz
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment / local config
+.env
+.env.*
+!.env.example
+
+# Runtime temp/cache
+.cache/
+.tmp/
+tmp/
+.temp/
+
+# OS/editor files
+.DS_Store
+.AppleDouble
+.LSOverride
+.ignore
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test artifacts
+.nyc_output/
+playwright-report/
+test-results/

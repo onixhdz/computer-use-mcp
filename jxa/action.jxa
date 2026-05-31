@@ -1,0 +1,111 @@
+// Action body. Requires core.jxa concatenated ahead of it. Re-resolves a node
+// by its app_state index (re-walking the same DFS) and performs an action
+// via the AX C API. Params: app, index, maxDepth, kind ('press' | 'action' |
+// 'setvalue'), action, attribute, value, expectRole, expectLabel. Returns JSON.
+
+const TARGET_INDEX = P.index;
+const MAX_NODES = TARGET_INDEX + 50;
+const KIND = P.kind;
+const ACTION = P.action || "AXPress";
+const ATTRIBUTE = P.attribute || "AXValue";
+const SET_VALUE = P.value != null ? P.value : "";
+const EXPECT_ROLE = P.expectRole || null;
+const EXPECT_LABEL = P.expectLabel || null;
+
+const pid = resolvePid(TARGET);
+let result;
+if (!pid) {
+	result = JSON.stringify({ ok: false, error: "app not found or not running: " + TARGET });
+} else {
+	const appEl = $.AXUIElementCreateApplication(pid);
+	enableAx(appEl);
+	// Background only — never foreground/wake. The tree must already be awake (run
+	// app_state first). A stale index yields a result telling the caller to re-snapshot.
+
+	let found = null;
+	const res = walkTree(appEl, MAX_NODES, function (el, depth, idx) {
+		if (idx === TARGET_INDEX) {
+			found = el;
+			return "stop";
+		}
+	});
+
+	let out;
+	if (!found) {
+		out = {
+			ok: false,
+			error: "index " + TARGET_INDEX + " not found (tree has " + res.count + " nodes now). Re-run computer_use with action app_state.",
+		};
+	} else {
+		const role = str(castAttr(found, "AXRole")) || "";
+		const fr = friendly(role);
+		const label = nodeLabel(found, role) || "";
+		// Editable fields carry their text in AXValue with an empty label, so match
+		// expectLabel against label OR value before rejecting as stale.
+		const value = str(castAttr(found, "AXValue")) || "";
+		if (EXPECT_ROLE && fr !== EXPECT_ROLE && role !== EXPECT_ROLE) {
+			out = {
+				ok: false,
+				error: "index " + TARGET_INDEX + " is now a " + fr + " (expected " + EXPECT_ROLE + "). Tree changed — re-run computer_use with action app_state.",
+				role: fr,
+				label: label,
+			};
+		} else if (EXPECT_LABEL && label.indexOf(EXPECT_LABEL) < 0 && value.indexOf(EXPECT_LABEL) < 0) {
+			out = {
+				ok: false,
+				error:
+					'index ' + TARGET_INDEX + ' is label "' + label + '" value "' + value.slice(0, 60) + '" (expected to contain "' + EXPECT_LABEL + '"). Re-run computer_use with action app_state.',
+				role: fr,
+				label: label,
+			};
+		} else if (KIND === "setvalue") {
+			if (!isSettable(found, ATTRIBUTE)) {
+				out = {
+					ok: false,
+					error: ATTRIBUTE + " is not settable on this " + fr + " (it may be a rich/controlled editor — use type_text).",
+					role: fr,
+					label: label,
+				};
+			} else {
+				const before = str(castAttr(found, ATTRIBUTE));
+				const e = $.AXUIElementSetAttributeValue(found, $(ATTRIBUTE), coerce(SET_VALUE));
+				if (e !== 0) {
+					out = { ok: false, error: "set value failed: " + axErr(e), role: fr, label: label };
+				} else {
+					// Controlled/rich editors (CodeMirror, React) accept the set call but ignore
+					// it. Applied if the value matches or changed; only an unchanged value is a
+					// true no-op (avoids false negatives when the field normalizes the value).
+					const readback = str(castAttr(found, ATTRIBUTE));
+					if (readback === SET_VALUE || readback !== before) {
+						out = { ok: true, index: TARGET_INDEX, role: fr, label: label, attribute: ATTRIBUTE, value: SET_VALUE, applied: true };
+					} else {
+						out = {
+							ok: false,
+							applied: false,
+							index: TARGET_INDEX,
+							role: fr,
+							label: label,
+							attribute: ATTRIBUTE,
+							value: SET_VALUE,
+							readback: readback || "",
+							error:
+								'value did not take (field reads back as "' +
+								(readback || "") +
+								'"); it may be a controlled/rich editor — use type_text.',
+						};
+					}
+				}
+			}
+		} else {
+			const act = KIND === "action" ? ACTION : "AXPress";
+			const e = $.AXUIElementPerformAction(found, $(act));
+			out =
+				e === 0
+					? { ok: true, index: TARGET_INDEX, role: fr, label: label, action: act }
+					: { ok: false, error: act + " failed: " + axErr(e), role: fr, label: label };
+		}
+	}
+
+	result = JSON.stringify(out);
+}
+result;

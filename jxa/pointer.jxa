@@ -1,0 +1,205 @@
+// Pointer and scroll input. Requires core.jxa concatenated ahead of it.
+// Params: app, op, x/y, from_x/from_y/to_x/to_y, mouse_button, click_count,
+// direction, pages, allow_cursor_takeover.
+//
+// Background-first: click/drag are delivered to the target window WITHOUT moving
+// the user's physical cursor or raising the window, using the SkyLight recipe
+// (field stamps + window-local stamp + off-screen primer + focus-without-raise),
+// posted via both SLEventPostToPid (Chromium/Catalyst) and CGEventPostToPid
+// (AppKit). The physical cursor is used ONLY when allow_cursor_takeover is true,
+// which the model must set after the user grants permission. If the background
+// path is unavailable, this returns a clear error instead of grabbing the cursor.
+// Coordinates are app-window screenshot pixels, mapped with the exact scale
+// measured from an in-process capture.
+
+ObjC.import("CoreGraphics");
+ObjC.import("AppKit");
+
+const src = $.CGEventSourceCreate($.kCGEventSourceStateHIDSystemState);
+
+function buttonId(name) {
+	if (name === "right") return 1;
+	if (name === "middle") return 2;
+	return 0;
+}
+
+function global(win, scale, x, y) {
+	return $.CGPointMake(win.x + Number(x) / scale.x, win.y + Number(y) / scale.y);
+}
+
+function downType(button) {
+	if (button === 1) return $.kCGEventRightMouseDown;
+	if (button === 2) return $.kCGEventOtherMouseDown;
+	return $.kCGEventLeftMouseDown;
+}
+function upType(button) {
+	if (button === 1) return $.kCGEventRightMouseUp;
+	if (button === 2) return $.kCGEventOtherMouseUp;
+	return $.kCGEventLeftMouseUp;
+}
+function draggedType(button) {
+	if (button === 1) return $.kCGEventRightMouseDragged;
+	if (button === 2) return $.kCGEventOtherMouseDragged;
+	return $.kCGEventLeftMouseDragged;
+}
+
+// --- Physical cursor (HID) path: only with explicit permission ---------------
+function postHID(type, p, button, clickCount) {
+	const ev = $.CGEventCreateMouseEvent(src, type, p, button);
+	if (clickCount) $.CGEventSetIntegerValueField(ev, $.kCGMouseEventClickState, clickCount);
+	$.CGEventPost($.kCGHIDEventTap, ev);
+}
+
+// --- Background (SkyLight) path: default; no cursor move, no raise ------------
+// Replicates the telemetry a real gesture carries so Chromium's renderer accepts
+// the synthesized event. Raw field indices, per the validated recipe.
+function stamp(ev, pid, wid, phase, clickState, group, button) {
+	$.SLEventSetIntegerValueField(ev, 0, phase);
+	$.SLEventSetIntegerValueField(ev, 1, clickState);
+	$.SLEventSetIntegerValueField(ev, 3, button);
+	$.SLEventSetIntegerValueField(ev, 7, 3);
+	$.SLEventSetIntegerValueField(ev, 40, pid);
+	$.SLEventSetIntegerValueField(ev, 51, wid);
+	$.SLEventSetIntegerValueField(ev, 58, group);
+	$.SLEventSetIntegerValueField(ev, 91, wid);
+	$.SLEventSetIntegerValueField(ev, 92, wid);
+}
+
+// Post one stamped event at global location gp with the window-local stamp (lx,ly).
+function postBg(pid, wid, type, gp, lx, ly, button, phase, clickState, group) {
+	const ev = $.CGEventCreateMouseEvent(src, type, gp, button);
+	stamp(ev, pid, wid, phase, clickState, group, button);
+	$.CGEventSetWindowLocation(ev, lx, ly);
+	$.SLEventPostToPid(pid, ev);
+	$.CGEventPostToPid(pid, ev);
+}
+
+// Open Chromium's user-activation gate with an off-screen primer click that hits
+// no DOM element, so the subsequent real gesture is trusted.
+function primer(pid, wid, button, group) {
+	const off = $.CGPointMake(-1, -1);
+	postBg(pid, wid, downType(button), off, -1, -1, button, 1, 1, group);
+	postBg(pid, wid, upType(button), off, -1, -1, button, 2, 1, group);
+}
+
+function bgClick(pid, win, scale, x, y, button, clicks) {
+	const wid = win.id;
+	const group = Math.floor(Date.now() % 1000000) + 1;
+	const gp = global(win, scale, x, y);
+	const lx = Number(x) / scale.x;
+	const ly = Number(y) / scale.y;
+	const token = focusWithoutRaise(pid, wid);
+	try {
+		postBg(pid, wid, $.kCGEventMouseMoved, gp, lx, ly, button, 2, 0, group);
+		primer(pid, wid, button, group);
+		delay(0.1);
+		for (let i = 1; i <= clicks; i++) {
+			postBg(pid, wid, downType(button), gp, lx, ly, button, 3, i, group);
+			postBg(pid, wid, upType(button), gp, lx, ly, button, 3, i, group);
+			delay(0.05);
+		}
+	} finally {
+		endFocusWithoutRaise(token);
+	}
+}
+
+function bgDrag(pid, win, scale, fx, fy, tx, ty) {
+	const wid = win.id;
+	const button = 0;
+	const group = Math.floor(Date.now() % 1000000) + 1;
+	const from = global(win, scale, fx, fy);
+	const flx = Number(fx) / scale.x;
+	const fly = Number(fy) / scale.y;
+	const token = focusWithoutRaise(pid, wid);
+	try {
+		postBg(pid, wid, $.kCGEventMouseMoved, from, flx, fly, button, 2, 0, group);
+		primer(pid, wid, button, group);
+		delay(0.1);
+		postBg(pid, wid, downType(button), from, flx, fly, button, 3, 1, group);
+		const steps = 18;
+		for (let i = 1; i <= steps; i++) {
+			const t = i / steps;
+			const px = Number(fx) + (Number(tx) - Number(fx)) * t;
+			const py = Number(fy) + (Number(ty) - Number(fy)) * t;
+			postBg(pid, wid, draggedType(button), global(win, scale, px, py), px / scale.x, py / scale.y, button, 3, 1, group);
+			delay(0.015);
+		}
+		const to = global(win, scale, tx, ty);
+		postBg(pid, wid, upType(button), to, Number(tx) / scale.x, Number(ty) / scale.y, button, 3, 1, group);
+	} finally {
+		endFocusWithoutRaise(token);
+	}
+}
+
+const TAKEOVER_HINT =
+	"Background pointer delivery is unavailable on this macOS (SkyLight SPIs did not load). Ask the user whether they allow taking control of the physical cursor; if they agree, retry with allow_cursor_takeover: true.";
+
+const pid = resolvePid(TARGET);
+const takeover = P.allow_cursor_takeover === true;
+let result;
+if (!pid) {
+	result = JSON.stringify({ ok: false, error: "app not found or not running: " + TARGET });
+} else {
+	const win = findWindow(pid);
+	if (!win) {
+		result = JSON.stringify({ ok: false, error: "no window found for app: " + TARGET });
+	} else if (P.op === "scroll") {
+		// Scroll is already background via CGEventPostToPid (no cursor move).
+		const pages = Math.max(0.1, Math.min(10, Number(P.pages || 1)));
+		const amount = Math.round(10 * pages);
+		let dx = 0;
+		let dy = 0;
+		if (P.direction === "up") dy = amount;
+		else if (P.direction === "down") dy = -amount;
+		else if (P.direction === "left") dx = amount;
+		else if (P.direction === "right") dx = -amount;
+		else result = JSON.stringify({ ok: false, error: "unknown direction: " + P.direction });
+		if (!result) {
+			const ev = $.CGEventCreateScrollWheelEvent(src, $.kCGScrollEventUnitLine, 2, dy, dx);
+			$.CGEventPostToPid(pid, ev);
+			result = JSON.stringify({ ok: true, message: "scrolled " + P.direction, direction: P.direction, pages: pages, delivery: "background" });
+		}
+	} else if (P.op === "click") {
+		const button = buttonId(P.mouse_button || "left");
+		const clicks = Math.max(1, Math.min(3, Number(P.click_count || 1)));
+		const scale = windowScale(win, windowImage(win));
+		if (takeover) {
+			const gp = global(win, scale, P.x, P.y);
+			for (let i = 1; i <= clicks; i++) {
+				postHID(downType(button), gp, button, i);
+				postHID(upType(button), gp, button, i);
+				delay(0.05);
+			}
+		} else if (!skylightReady()) {
+			result = JSON.stringify({ ok: false, code: "background_pointer_unavailable", error: TAKEOVER_HINT, delivery: "none" });
+		} else {
+			bgClick(pid, win, scale, P.x, P.y, button, clicks);
+		}
+		if (!result)
+			result = JSON.stringify({ ok: true, message: "clicked at " + P.x + "," + P.y, x: P.x, y: P.y, button: P.mouse_button || "left", click_count: clicks, delivery: takeover ? "physical" : "background" });
+	} else if (P.op === "drag") {
+		const scale = windowScale(win, windowImage(win));
+		if (takeover) {
+			const button = 0;
+			const from = global(win, scale, P.from_x, P.from_y);
+			const to = global(win, scale, P.to_x, P.to_y);
+			postHID(downType(button), from, button, 1);
+			const steps = 12;
+			for (let i = 1; i <= steps; i++) {
+				const t = i / steps;
+				postHID(draggedType(button), $.CGPointMake(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t), button, 1);
+				delay(0.015);
+			}
+			postHID(upType(button), to, button, 1);
+		} else if (!skylightReady()) {
+			result = JSON.stringify({ ok: false, code: "background_pointer_unavailable", error: TAKEOVER_HINT, delivery: "none" });
+		} else {
+			bgDrag(pid, win, scale, P.from_x, P.from_y, P.to_x, P.to_y);
+		}
+		if (!result)
+			result = JSON.stringify({ ok: true, message: "dragged", from_x: P.from_x, from_y: P.from_y, to_x: P.to_x, to_y: P.to_y, delivery: takeover ? "physical" : "background" });
+	} else {
+		result = JSON.stringify({ ok: false, error: "unknown pointer op: " + P.op });
+	}
+}
+result;

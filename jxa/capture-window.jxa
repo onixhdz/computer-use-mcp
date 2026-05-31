@@ -1,0 +1,21 @@
+// In-process PNG capture of an app's frontmost window, base64-encoded to stdout.
+// Requires core.jxa concatenated ahead of it. Captures backgrounded/occluded
+// windows with no temp file and without raising the app. Params: app.
+
+ObjC.import("CoreGraphics");
+ObjC.import("AppKit");
+
+const pid = resolvePid(TARGET);
+let result = "";
+if (pid) {
+	const win = findWindow(pid);
+	if (win) {
+		const img = windowImage(win);
+		if (img) {
+			const rep = $.NSBitmapImageRep.alloc.initWithCGImage(img);
+			const data = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $());
+			if (data) result = ObjC.unwrap(data.base64EncodedStringWithOptions(0));
+		}
+	}
+}
+result;

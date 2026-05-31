@@ -1,0 +1,187 @@
+// Key synthesis via CGEvent posted with CGEventPostToPid, which delivers to the
+// target process WITHOUT bringing it forward. Requires core.jxa concatenated
+// ahead of it. Params: app, kind ('type' | 'key' | 'sequence'), text, key,
+// steps, index (optional node to focus first), maxDepth. Returns JSON.
+//
+// Keycode-based (US ANSI). type_text is therefore ASCII-only; arbitrary unicode
+// belongs in set_value on a settable field. CGEventKeyboardSetUnicodeString is
+// avoided on purpose — its UniChar buffer is not safely constructible in JXA.
+
+ObjC.import("CoreGraphics");
+
+const FLAG_SHIFT = 0x20000;
+const FLAG_CONTROL = 0x40000;
+const FLAG_ALT = 0x80000;
+const FLAG_CMD = 0x100000;
+
+const LETTER = {
+	a: 0, b: 11, c: 8, d: 2, e: 14, f: 3, g: 5, h: 4, i: 34, j: 38, k: 40, l: 37, m: 46,
+	n: 45, o: 31, p: 35, q: 12, r: 15, s: 1, t: 17, u: 32, v: 9, w: 13, x: 7, y: 16, z: 6,
+};
+const DIGIT = { "0": 29, "1": 18, "2": 19, "3": 20, "4": 21, "5": 23, "6": 22, "7": 26, "8": 28, "9": 25 };
+// char -> [keycode, needsShift]
+const SYMBOL = {
+	" ": [49, false], "\t": [48, false], "\n": [36, false], "\r": [36, false],
+	"-": [27, false], "_": [27, true], "=": [24, false], "+": [24, true],
+	"[": [33, false], "{": [33, true], "]": [30, false], "}": [30, true],
+	"\\": [42, false], "|": [42, true], ";": [41, false], ":": [41, true],
+	"'": [39, false], '"': [39, true], ",": [43, false], "<": [43, true],
+	".": [47, false], ">": [47, true], "/": [44, false], "?": [44, true],
+	"`": [50, false], "~": [50, true],
+	"!": [18, true], "@": [19, true], "#": [20, true], "$": [21, true], "%": [23, true],
+	"^": [22, true], "&": [26, true], "*": [28, true], "(": [25, true], ")": [29, true],
+};
+const NAMED = {
+	return: 36, enter: 36, tab: 48, space: 49, escape: 53, esc: 53, delete: 51, backspace: 51,
+	forwarddelete: 117, up: 126, down: 125, left: 123, right: 124, home: 115, end: 119,
+	pageup: 116, pagedown: 121, f1: 122, f2: 120, f3: 99, f4: 118, f5: 96, f6: 97, f7: 98,
+	f8: 100, f9: 101, f10: 109, f11: 103, f12: 111,
+};
+
+const src = $.CGEventSourceCreate($.kCGEventSourceStateHIDSystemState);
+
+function postKey(pid, code, flags) {
+	const down = $.CGEventCreateKeyboardEvent(src, code, true);
+	const up = $.CGEventCreateKeyboardEvent(src, code, false);
+	if (flags) {
+		$.CGEventSetFlags(down, flags);
+		$.CGEventSetFlags(up, flags);
+	}
+	$.CGEventPostToPid(pid, down);
+	$.CGEventPostToPid(pid, up);
+}
+
+function charKey(ch) {
+	const lower = ch.toLowerCase();
+	if (LETTER[lower] != null) return [LETTER[lower], ch !== lower];
+	if (DIGIT[ch] != null) return [DIGIT[ch], false];
+	if (SYMBOL[ch]) return SYMBOL[ch];
+	return null;
+}
+
+function pressCombo(pid, keyStr) {
+	const parts = String(keyStr)
+		.split("+")
+		.map(function (p) {
+			return p.trim();
+		})
+		.filter(function (p) {
+			return p.length;
+		});
+	let flags = 0;
+	let baseCode = null;
+	for (let i = 0; i < parts.length; i++) {
+		const pl = parts[i].toLowerCase();
+		if (pl === "cmd" || pl === "command" || pl === "super" || pl === "meta") flags |= FLAG_CMD;
+		else if (pl === "ctrl" || pl === "control") flags |= FLAG_CONTROL;
+		else if (pl === "alt" || pl === "option" || pl === "opt") flags |= FLAG_ALT;
+		else if (pl === "shift") flags |= FLAG_SHIFT;
+		else if (NAMED[pl] != null) baseCode = NAMED[pl];
+		else if (parts[i].length === 1) {
+			const ck = charKey(parts[i]);
+			if (ck) {
+				baseCode = ck[0];
+				if (ck[1]) flags |= FLAG_SHIFT;
+			}
+		}
+	}
+	if (baseCode == null) return { ok: false, error: "unknown key: " + keyStr };
+	postKey(pid, baseCode, flags);
+	return { ok: true };
+}
+
+function typeText(pid, s) {
+	// Each char is a synthesized keystroke with a small gap; cap the work so a
+	// runaway string can't block for tens of seconds (use set_value for bulk text).
+	if (s.length > 2000) {
+		return { ok: false, error: "text too long (" + s.length + " chars; max 2000). Use set_value for large content." };
+	}
+	let typed = 0;
+	let skipped = 0;
+	for (let i = 0; i < s.length; i++) {
+		const ck = charKey(s[i]);
+		if (!ck) {
+			skipped++;
+			continue;
+		}
+		postKey(pid, ck[0], ck[1] ? FLAG_SHIFT : 0);
+		delay(0.008);
+		typed++;
+	}
+	return { ok: true, typed: typed, skipped: skipped };
+}
+
+const pid = resolvePid(TARGET);
+let result;
+if (!pid) {
+	result = JSON.stringify({ ok: false, error: "app not found or not running: " + TARGET });
+} else {
+	const appEl = $.AXUIElementCreateApplication(pid);
+	enableAx(appEl);
+	// Keys are delivered to the pid in the background (CGEventPostToPid) — never
+	// foreground/wake. Run app_state first if the app's tree needs waking.
+
+	// Optionally focus a node by index first (against the current background tree).
+	if (P.index != null) {
+		let found = null;
+		walkTree(appEl, P.index + 50, function (el, depth, idx) {
+			if (idx === P.index) {
+				found = el;
+				return "stop";
+			}
+		});
+		if (found) $.AXUIElementSetAttributeValue(found, $("AXFocused"), $.NSNumber.numberWithBool(true));
+	}
+
+	// Background keystrokes only reach the target if its window holds input focus.
+	// Mirror the pointer path: focus the window without raising it for the duration
+	// of the keys, then restore the previous focus. No-op (null) when SkyLight is
+	// unavailable, leaving the plain CGEventPostToPid delivery as the fallback.
+	const win = findWindow(pid);
+	const focusToken = win ? focusWithoutRaise(pid, win.id) : null;
+
+	let out;
+	try {
+		if (P.kind === "sequence") {
+			// Run an ordered list of key/text steps while the app stays frontmost, so
+			// transient overlays (Quick Open, command palette, autocomplete) survive
+			// across steps. Focus is restored once, after the whole sequence.
+			const steps = P.steps || [];
+			let ran = 0;
+			out = { ok: true };
+			for (let i = 0; i < steps.length; i++) {
+				const st = steps[i];
+				let r;
+				if (st.key != null) r = pressCombo(pid, st.key);
+				else if (st.text != null) r = typeText(pid, String(st.text));
+				else r = { ok: false, error: "step " + i + " has neither key nor text" };
+				if (!r.ok) {
+					out = { ok: false, error: "step " + i + ": " + r.error, ranSteps: ran };
+					break;
+				}
+				ran++;
+				delay(0.08); // let the app react (e.g. an overlay opening) before the next step
+			}
+			if (out.ok) out.steps = ran;
+		} else if (P.kind === "key") {
+			const r = pressCombo(pid, P.key);
+			out = r.ok ? { ok: true, key: P.key } : { ok: false, error: r.error };
+		} else {
+			const r = typeText(pid, String(P.text != null ? P.text : ""));
+			if (!r.ok) out = { ok: false, error: r.error };
+			else {
+				out = { ok: true, typed: r.typed };
+				if (r.skipped) out.skipped = r.skipped;
+			}
+		}
+	} finally {
+		// Let the final keystroke be processed while the window still holds focus,
+		// then restore the previous focus (no raise, no lingering focus change).
+		if (focusToken) {
+			delay(0.03);
+			endFocusWithoutRaise(focusToken);
+		}
+	}
+	result = JSON.stringify(out);
+}
+result;

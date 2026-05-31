@@ -1,0 +1,28 @@
+ObjC.import("AppKit");
+
+function str(v) {
+	if (v === undefined || v === null) return undefined;
+	try {
+		const u = ObjC.unwrap(v);
+		if (typeof u === "string") return u;
+		if (typeof u === "number" || typeof u === "boolean") return String(u);
+	} catch (e) {}
+	return undefined;
+}
+
+const apps = $.NSWorkspace.sharedWorkspace.runningApplications;
+const lines = [];
+const n = Number(apps.count);
+for (let i = 0; i < n; i++) {
+	const app = apps.objectAtIndex(i);
+	const name = str(app.localizedName) || "(unknown)";
+	const bundleId = str(app.bundleIdentifier) || "";
+	let path = "";
+	try {
+		path = str(app.bundleURL.path) || "";
+	} catch (e) {}
+	const pid = Number(app.processIdentifier);
+	const active = ObjC.unwrap(app.active) ? " active" : "";
+	lines.push(`${name}${active} pid=${pid}${bundleId ? ` bundle=${bundleId}` : ""}${path ? ` path=${path}` : ""}`);
+}
+lines.sort().join("\n");
