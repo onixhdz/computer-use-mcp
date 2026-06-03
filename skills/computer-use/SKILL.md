@@ -46,9 +46,8 @@ Follow these rules to act reliably and avoid wasted or wrong actions.
 
 ### Coordinate spaces
 
-- Coordinate actions (`click` with `x`/`y`, `drag`) use coordinates from the screenshot returned by `get_app_state`.
-- Accessibility frames are logical points; screenshots may be Retina pixels. Do not mix the two spaces. Derive coordinates from the same screenshot you are acting on.
-- Prefer element-index actions over coordinates when an index is available; they are more stable.
+- Prefer Accessibility/index actions when the target is represented in the tree. Use screenshot coordinates only when no suitable accessible action exists, or when a fresh indexed action fails or clearly does not take effect.
+- Coordinate actions (`click` with `x`/`y`, `drag`) use coordinates from a screenshot returned by `get_app_state`; do not mix screenshot pixels with accessibility frame points.
 - Coordinate `click`/`drag` are delivered in the background: the cursor does not move and the window is not raised. If a result reports the background pointer is unavailable, or shows no change (verify against the attached screenshot), do not silently retry — ask the user for permission to control the physical cursor, then retry with `allow_cursor_takeover: true`. Treat moving the real cursor as a user-disrupting action (see the confirmation policy).
 
 ### Input
