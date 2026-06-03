@@ -24,6 +24,14 @@ export class AppNotFoundError extends ComputerUseError {
     super("app_not_found", `app not found or not running: ${app}`, { app });
   }
 }
+export class AccessibilityError extends ComputerUseError {
+  constructor() {
+    super(
+      "accessibility_not_granted",
+      "Accessibility permission is not granted to the host process. Grant it in System Settings > Privacy & Security > Accessibility (x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility), then try again.",
+    );
+  }
+}
 export class BackendError extends ComputerUseError {
   constructor(message: string, details: Record<string, unknown> = {}) {
     super("backend_error", message, details);

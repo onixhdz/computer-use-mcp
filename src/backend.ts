@@ -91,4 +91,24 @@ async function captureWindow(
   return Buffer.from(base64, "base64");
 }
 
-export const defaultBackend: ComputerUseBackend = { runJxa, captureWindow };
+// Memoized once trusted; while untrusted every call re-checks, so granting
+// permission works on the next call. Retry absorbs the spurious first-call
+// false before TCC initializes.
+let axTrusted = false;
+async function accessibilityTrusted(): Promise<boolean> {
+  if (axTrusted) return true;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 150));
+    if ((await runJxa(script("permissions.jxa"))).trim() === "true") {
+      axTrusted = true;
+      return true;
+    }
+  }
+  return false;
+}
+
+export const defaultBackend: ComputerUseBackend = {
+  runJxa,
+  captureWindow,
+  accessibilityTrusted,
+};

@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { diffSnapshots, normalizeAppState } from "./state-diff.js";
 import {
   computerUseTools,
+  createComputerUseMcpServer,
   executeComputerUseAction,
   getComputerUseMcpServerConfig,
   type ComputerUseBackend,
@@ -461,7 +463,9 @@ describe("computer-use core", () => {
       { app: "Finder", from_x: 1, from_y: 1, to_x: 2, to_y: 2 },
       { backend },
     );
-    expect(firstText(result)).not.toContain("Visual fallback screenshot attached");
+    expect(firstText(result)).not.toContain(
+      "Visual fallback screenshot attached",
+    );
     expect(firstText(result)).toContain("allow_cursor_takeover: true");
     expect(result.content.some((c) => c.type === "image")).toBe(false);
   });
@@ -504,6 +508,60 @@ describe("computer-use core", () => {
     expect(firstText(result)).not.toContain("allow_cursor_takeover");
   });
 
+  test("ignores element geometry in diff and labels", () => {
+    const before = `App: Test (pid 1)
+0 window Test Position: 0,0 Size: 200x200
+  1 button Save Position: 10,20 Size: 40x18`;
+    const after = `App: Test (pid 1)
+0 window Test Position: 0,0 Size: 200x200
+  1 button Save Position: 500,600 Size: 40x18`;
+    const diff = diffSnapshots(
+      normalizeAppState("Test", before),
+      normalizeAppState("Test", after),
+    );
+    expect(diff.changed).toBe(0);
+    expect(diff.added).toBe(0);
+    expect(diff.removed).toBe(0);
+    const labels = [...normalizeAppState("Test", after).facts.values()].map(
+      (f) => f.label,
+    );
+    expect(labels).toContain("Save");
+    expect(labels.some((l) => l.includes("Position"))).toBe(false);
+  });
+
+  test("gates AX-requiring tools when accessibility is untrusted", async () => {
+    const backend: ComputerUseBackend = {
+      platform: "darwin",
+      runJxa: async () => {
+        throw new Error("should not run while untrusted");
+      },
+      captureWindow: async () => Buffer.from(""),
+      accessibilityTrusted: async () => false,
+    };
+    for (const args of [
+      { name: "get_app_state", a: { app: "Finder" } },
+      { name: "click", a: { app: "Finder", x: 1, y: 1 } },
+    ]) {
+      const result = await executeComputerUseAction(args.name, args.a, {
+        backend,
+      });
+      expect(result.isError).toBe(true);
+      expect(result.details.code).toBe("accessibility_not_granted");
+    }
+  });
+
+  test("does not gate list_apps when accessibility is untrusted", async () => {
+    const backend: ComputerUseBackend = {
+      platform: "darwin",
+      runJxa: async () => "1 Finder",
+      captureWindow: async () => Buffer.from(""),
+      accessibilityTrusted: async () => false,
+    };
+    const result = await executeComputerUseAction("list_apps", {}, { backend });
+    expect(result.isError).toBeUndefined();
+    expect(firstText(result)).toContain("Finder");
+  });
+
   test("provides a local MCP config on macOS", () => {
     const config = getComputerUseMcpServerConfig();
     if (process.platform === "darwin") {
@@ -516,26 +574,25 @@ describe("computer-use core", () => {
 });
 
 describe("computer-use MCP server", () => {
-  test("lists tools over stdio", async () => {
-    const transport = new StdioClientTransport({
-      command: process.versions.bun ? process.execPath : "bun",
-      args: ["src/bin/computer-use-mcp.ts"],
-      stderr: "ignore",
-    });
+  test("lists tools over an in-memory transport", async () => {
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createComputerUseMcpServer();
     const client = new Client(
       { name: "test", version: "0.0.0" },
       { capabilities: {} },
     );
     try {
-      await client.connect(transport, { timeout: 10_000 });
-      const listed = await client.listTools(undefined, { timeout: 10_000 });
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const listed = await client.listTools();
       expect(listed.tools.some((tool) => tool.name === "list_apps")).toBe(true);
       expect(listed.tools.some((tool) => tool.name === "get_app_state")).toBe(
         true,
       );
     } finally {
       await client.close().catch(() => undefined);
-      await transport.close().catch(() => undefined);
+      await server.close().catch(() => undefined);
     }
   });
 });

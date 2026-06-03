@@ -1,5 +1,6 @@
 import { coreScript, defaultBackend, script } from "./backend.js";
 import {
+  AccessibilityError,
   AppNotFoundError,
   BackendError,
   ComputerUseError,
@@ -63,6 +64,13 @@ export async function executeComputerUseAction(
     validateArgs(tool, args);
     const backend = options.backend ?? defaultBackend;
     ensureMac(backend.platform ?? process.platform);
+    // AX-dependent tools fail loudly instead of silently no-opping without trust.
+    if (
+      tool.requiresAccessibility !== false &&
+      backend.accessibilityTrusted &&
+      !(await backend.accessibilityTrusted())
+    )
+      throw new AccessibilityError();
     switch (tool.name) {
       case "list_apps":
         return await runListApps(backend, options.signal);

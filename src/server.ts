@@ -24,7 +24,12 @@ export function createComputerUseMcpServer(): McpServer {
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
       capabilities: { tools: { listChanged: false } },
-      instructions: "macOS-only computer-use tools exposed over MCP.",
+      instructions: [
+        "macOS-only computer-use tools. Prefer element_index; get_app_state returns element Position/Size so coordinates need no screenshot.",
+        "Screenshots are optional and need Screen Recording; use them for final visual confirmation. If it is unavailable, work Accessibility-only.",
+        "If Screen Recording is failing or unavailable, continue Accessibility-only: use `element_index` actions and the `Position`/`Size` geometry in `get_app_state` (which need no screenshot).",
+        "If Accessibility is not granted (actions no-op or report not granted), stop and ask the user to grant it.",
+      ].join(" "),
     },
   );
   // Hand-rolled JSON Schema means McpServer's registerTool helpers add nothing; use raw handlers.

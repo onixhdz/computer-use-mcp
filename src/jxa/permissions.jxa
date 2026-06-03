@@ -1,0 +1,8 @@
+// Prints "true"/"false" for host Accessibility trust, prompting when untrusted.
+// The kAXTrustedCheckOptionPrompt symbol segfaults osascript via the JXA bridge,
+// so its literal string value is used as the key.
+ObjC.import("ApplicationServices");
+ObjC.import("Foundation");
+
+const opts = $.NSDictionary.dictionaryWithObjectForKey($.NSNumber.numberWithBool(true), $("AXTrustedCheckOptionPrompt"));
+JSON.stringify(!!$.AXIsProcessTrustedWithOptions(opts));

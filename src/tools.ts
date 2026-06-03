@@ -47,6 +47,7 @@ export const computerUseTools: ToolSpec[] = [
     title: "List Apps",
     description:
       "List running macOS apps with names, bundle IDs, paths, and process IDs.",
+    requiresAccessibility: false,
     inputSchema: emptySchema,
     annotations: {
       title: "List Apps",
@@ -68,7 +69,10 @@ export const computerUseTools: ToolSpec[] = [
         "Maximum accessibility nodes. Default 1500, max 10000.",
       ),
       screenshot: booleanProp(
-        "Also return a PNG screenshot of the frontmost app window; its pixels are the click/drag coordinate space.",
+        [
+          "Also return a PNG screenshot of the frontmost app window; its pixels are the click/drag coordinate space.",
+          "Use it to verify rendering or to inspect canvas, video, or other content not exposed in the accessibility tree.",
+        ].join(" "),
       ),
     }),
     annotations: {
@@ -319,6 +323,7 @@ export const computerUseTools: ToolSpec[] = [
       "Last-resort fallback: run raw JavaScript for Automation (JXA) on macOS when no other tool can do the task.",
       "Executes arbitrary code with the user's privileges; prefer the structured tools and use this only when they cannot accomplish the goal.",
     ].join(" "),
+    requiresAccessibility: false,
     inputSchema: {
       type: "object",
       properties: {

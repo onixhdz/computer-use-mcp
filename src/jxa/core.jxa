@@ -24,6 +24,24 @@ function isSettable(el, name) {
 	return e === 0 && ObjC.unwrap(out[0]) === true;
 }
 
+// Parse an AXValue point/size into { a, b } from its description string
+// (x:/y: or w:/h:); AXValueGetValue's struct out-param is unreliable in JXA.
+function axGeom(el, name) {
+	const v = castAttr(el, name);
+	if (v === undefined) return null;
+	let d;
+	try {
+		d = String(ObjC.unwrap(v.description));
+	} catch (e) {
+		return null;
+	}
+	const p = d.match(/x:([-\d.]+) y:([-\d.]+)/);
+	if (p) return { a: parseFloat(p[1]), b: parseFloat(p[2]) };
+	const s = d.match(/w:([-\d.]+) h:([-\d.]+)/);
+	if (s) return { a: parseFloat(s[1]), b: parseFloat(s[2]) };
+	return null;
+}
+
 function actionNames(el) {
 	const out = Ref();
 	const e = $.AXUIElementCopyActionNames(el, out);

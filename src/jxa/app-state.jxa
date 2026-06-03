@@ -62,6 +62,10 @@ if (!pid) {
 	else if (enableErr === 0) delay(0.5);
 
 	const appName = str(castAttr(appEl, "AXTitle")) || TARGET;
+	// Convert each element's global AX point/size into the window-pixel space
+	// click/drag use, so coordinates are directly actionable.
+	const geomWin = findWindow(pid);
+	const geomScale = geomWin ? windowScale(geomWin) : null;
 	const lines = ["App: " + appName + " (pid " + pid + ")"];
 	const res = walkTree(appEl, MAX_NODES, function (el, depth, idx) {
 		const role = str(castAttr(el, "AXRole"));
@@ -114,6 +118,14 @@ if (!pid) {
 		if (identifier) line += " Identifier: " + identifier;
 		if (marked) line += " Mark: " + shortText(marked);
 		if (acts.length) line += " Secondary Actions: " + acts.join(", ");
+		if (geomWin) {
+			const pos = axGeom(el, "AXPosition");
+			if (pos) {
+				line += " Position: " + Math.round((pos.a - geomWin.x) * geomScale.x) + "," + Math.round((pos.b - geomWin.y) * geomScale.y);
+				const sz = axGeom(el, "AXSize");
+				if (sz) line += " Size: " + Math.round(sz.a * geomScale.x) + "x" + Math.round(sz.b * geomScale.y);
+			}
+		}
 		lines.push(line);
 	});
 

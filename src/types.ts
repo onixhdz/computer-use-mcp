@@ -44,12 +44,16 @@ export type ToolSpec = {
   description: string;
   inputSchema: JsonSchema;
   annotations: NonNullable<Tool["annotations"]>;
+  // Defaults to true (gated); set false for tools that work without Accessibility.
+  requiresAccessibility?: boolean;
 };
 
 export type ComputerUseBackend = {
   platform?: NodeJS.Platform;
   runJxa(code: string, signal?: AbortSignal): Promise<string>;
   captureWindow(app: string, signal?: AbortSignal): Promise<Buffer>;
+  // Omitted backends are treated as trusted (no gating).
+  accessibilityTrusted?(): Promise<boolean>;
 };
 
 export type ExecuteOptions = {
