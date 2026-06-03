@@ -1,12 +1,8 @@
-// Shared JXA core for the AX C-API tools. Concatenated ahead of app-state.jxa,
-// action.jxa, and keys.jxa, which provide the trailing `result` expression.
-// The caller prepends a `const P = {...}` params literal (built with
-// JSON.stringify, sent via stdin) ahead of this file — so values like typed
-// text never touch the process environment or argv. This file stays static and
-// editor-highlightable.
-//
-// Bridge notes: AXUIElementCopyAttributeValue returns a CFTypeRef through a
-// Ref(), which must go through ObjC.castRefToObject to be usable.
+// Shared JXA core for the AX C-API tools, concatenated ahead of app-state.jxa,
+// action.jxa, and keys.jxa. The caller prepends a `const P = {...}` params
+// literal via stdin, so values like typed text never hit argv/env.
+// Bridge note: AXUIElementCopyAttributeValue returns a CFTypeRef via Ref() that
+// must pass through ObjC.castRefToObject to be usable.
 
 ObjC.import("ApplicationServices");
 ObjC.import("AppKit");
@@ -136,6 +132,7 @@ function coerce(v) {
 // Map AX error codes to actionable guidance so failures aren't opaque numbers.
 function axErr(code) {
 	const m = {
+		"-25211": "accessibility API disabled — grant Accessibility to the host process in System Settings > Privacy & Security > Accessibility, then reload the server",
 		"-25202": "element no longer valid — re-run app_state",
 		"-25204": "can't complete now (element may be offscreen; try perform_action AXScrollToVisible first)",
 		"-25205": "attribute not supported here",
@@ -190,20 +187,29 @@ function windowImage(win) {
 	return $.CGWindowListCreateImage($.CGRectNull, $.kCGWindowListOptionIncludingWindow, win.id, $.kCGWindowImageBoundsIgnoreFraming);
 }
 
-// Exact pixel/point scale measured from the capture itself, so coordinates are
-// correct on any display DPI — not just the main screen. Falls back to the
-// main-screen backing scale when no image is available.
-function windowScale(win, img) {
-	if (img && win.w && win.h) {
-		return { x: Number($.CGImageGetWidth(img)) / win.w, y: Number($.CGImageGetHeight(img)) / win.h };
+// Backing scale of the display under the window center — no capture, so
+// coordinate clicks/drags need Accessibility only, not Screen Recording.
+function windowScale(win) {
+	const screens = $.NSScreen.screens;
+	const n = screens ? Number(screens.count) : 0;
+	if (n > 0 && win.w && win.h) {
+		const primaryH = Number(screens.objectAtIndex(0).frame.size.height);
+		const cx = win.x + win.w / 2;
+		const cy = primaryH - (win.y + win.h / 2);
+		for (let i = 0; i < n; i++) {
+			const f = screens.objectAtIndex(i).frame;
+			if (cx >= f.origin.x && cx < f.origin.x + f.size.width && cy >= f.origin.y && cy < f.origin.y + f.size.height) {
+				const s = Number(screens.objectAtIndex(i).backingScaleFactor) || 1;
+				return { x: s, y: s };
+			}
+		}
 	}
 	const s = Number($.NSScreen.mainScreen.backingScaleFactor) || 1;
 	return { x: s, y: s };
 }
 
-// Private SkyLight/CoreGraphics SPIs power focus-without-raise and background
-// pointer delivery. Bound lazily behind a guard so an unsupported macOS simply
-// falls back (AXFrontmost for reads; a clear error for pointer) instead of
+// Private SkyLight/CoreGraphics SPIs for focus-without-raise and background
+// pointer delivery. Bound lazily so an unsupported macOS falls back instead of
 // failing. Offsets/fields are macOS-version-sensitive (validated on macOS 26).
 let skylightState = null; // null = unprobed, true = available, false = unavailable
 function skylightReady() {
@@ -269,10 +275,8 @@ function endFocusWithoutRaise(token) {
 	$.SLPSPostEventRecordTo(token.prev.mutableBytes, focusRecord(0x01, 0).bytes);
 }
 
-// Wake an app whose accessibility tree is asleep (Electron/Chromium gate the
-// renderer tree on being focused). If the tree is already populated, do nothing
-// and return 0 — no focus change, no raise. Otherwise prefer focus-without-raise,
-// which wakes the tree with no z-order change; only if that fails do we fall back
+// Wake an app whose accessibility tree is asleep (Electron/Chromium gate it on
+// focus). No-op when already populated. Prefers focus-without-raise; falls back
 // to an AXFrontmost raise. Returns a restore token consumed by restoreFocus.
 function wakeFocus(appEl) {
 	if (windowsReady(appEl)) return 0;

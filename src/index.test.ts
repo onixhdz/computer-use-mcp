@@ -346,6 +346,58 @@ describe("computer-use core", () => {
     expect(postActionStateCall).toContain('"maxNodes":1500');
   });
 
+  test("get_app_state forwards requested app-state limits", async () => {
+    const backend = mockBackendSequence([finderBefore]);
+    await executeComputerUseAction(
+      "get_app_state",
+      { app: "Finder", maxDepth: 12, maxNodes: 34 },
+      { backend },
+    );
+    const stateCall = backend.calls.at(-1) ?? "";
+    expect(stateCall).toContain('"maxDepth":12');
+    expect(stateCall).toContain('"maxNodes":34');
+  });
+
+  test("get_app_state clamps oversized limits", async () => {
+    const backend = mockBackendSequence([finderBefore]);
+    await executeComputerUseAction(
+      "get_app_state",
+      { app: "Finder", maxDepth: 99999, maxNodes: 999999 },
+      { backend },
+    );
+    const stateCall = backend.calls.at(-1) ?? "";
+    expect(stateCall).toContain('"maxDepth":200');
+    expect(stateCall).toContain('"maxNodes":10000');
+  });
+
+  test("click rejects both element_index and coordinates", async () => {
+    const both = await executeComputerUseAction("click", {
+      app: "Finder",
+      element_index: 1,
+      x: 10,
+      y: 20,
+    });
+    expect(both.isError).toBe(true);
+    expect(firstText(both)).toContain("not both");
+  });
+
+  test("threads MAX_TYPED_CHARS into the keys script", async () => {
+    const backend = mockBackendSequence([
+      unlabeledFieldBefore,
+      '{"ok":true,"typed":3}',
+      unlabeledFieldAfter,
+    ]);
+    await executeComputerUseAction(
+      "type_text",
+      { app: "Test", text: "new" },
+      { backend },
+    );
+    const keysCall = backend.calls.find((code) =>
+      code.includes('"kind":"type"'),
+    );
+    expect(keysCall).toContain('"maxTyped":2000');
+  });
+
   test("maps mocked backend failures through the core envelope", async () => {
     const result = await executeComputerUseAction(
       "click",
@@ -383,8 +435,35 @@ describe("computer-use core", () => {
       { app: "Finder", from_x: 1, from_y: 1, to_x: 2, to_y: 2 },
       { backend },
     );
-    expect(firstText(result)).toContain("inspect the attached screenshot");
+    expect(firstText(result)).toContain("Visual fallback screenshot attached");
     expect(firstText(result)).toContain("allow_cursor_takeover: true");
+  });
+
+  test("omits the screenshot line on a background no-op when capture fails", async () => {
+    const outputs = [
+      finderBefore,
+      '{"ok":true,"message":"dragged","delivery":"background"}',
+      finderBefore,
+    ];
+    const backend: ComputerUseBackend = {
+      platform: "darwin",
+      runJxa: async () => {
+        const next = outputs.shift();
+        if (next === undefined) throw new Error("no mocked output left");
+        return next;
+      },
+      captureWindow: async () => {
+        throw new Error("screen recording not granted");
+      },
+    };
+    const result = await executeComputerUseAction(
+      "drag",
+      { app: "Finder", from_x: 1, from_y: 1, to_x: 2, to_y: 2 },
+      { backend },
+    );
+    expect(firstText(result)).not.toContain("Visual fallback screenshot attached");
+    expect(firstText(result)).toContain("allow_cursor_takeover: true");
+    expect(result.content.some((c) => c.type === "image")).toBe(false);
   });
 
   test("suppresses the takeover hint once the cursor is already controlled", async () => {
@@ -440,7 +519,7 @@ describe("computer-use MCP server", () => {
   test("lists tools over stdio", async () => {
     const transport = new StdioClientTransport({
       command: process.versions.bun ? process.execPath : "bun",
-      args: ["bin/computer-use-mcp.ts"],
+      args: ["src/bin/computer-use-mcp.ts"],
       stderr: "ignore",
     });
     const client = new Client(

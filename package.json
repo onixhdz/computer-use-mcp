@@ -38,9 +38,9 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "bun run clean && bunx tsc -p tsconfig.build.json && cp -R jxa dist/jxa && chmod +x dist/bin/computer-use-mcp.js",
+    "build": "bun run clean && bunx tsc -p tsconfig.build.json && mkdir -p dist/jxa && cp src/jxa/*.jxa dist/jxa/ && chmod +x dist/bin/computer-use-mcp.js",
     "prepack": "bun run build",
-    "test": "bun test index.test.ts",
+    "test": "bun test src/index.test.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "format": "bunx prettier --write .",
     "format:check": "bunx prettier --check .",

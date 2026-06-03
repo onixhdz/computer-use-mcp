@@ -6,10 +6,9 @@
     "strict": true,
     "declaration": true,
     "outDir": "dist",
-    "rootDir": ".",
-    "allowArbitraryExtensions": true,
+    "rootDir": "src",
     "skipLibCheck": true,
     "types": ["node", "bun"]
   },
-  "include": ["index.ts", "bin/**/*.ts", "index.test.ts"]
+  "include": ["src/**/*.ts"]
 }

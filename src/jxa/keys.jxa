@@ -93,8 +93,10 @@ function pressCombo(pid, keyStr) {
 function typeText(pid, s) {
 	// Each char is a synthesized keystroke with a small gap; cap the work so a
 	// runaway string can't block for tens of seconds (use set_value for bulk text).
-	if (s.length > 2000) {
-		return { ok: false, error: "text too long (" + s.length + " chars; max 2000). Use set_value for large content." };
+	// The cap comes from the caller (MAX_TYPED_CHARS) so the TS and JXA limits stay in sync.
+	const cap = P.maxTyped;
+	if (s.length > cap) {
+		return { ok: false, error: "text too long (" + s.length + " chars; max " + cap + "). Use set_value for large content." };
 	}
 	let typed = 0;
 	let skipped = 0;

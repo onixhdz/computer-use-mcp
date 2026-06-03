@@ -47,7 +47,7 @@ Most users should configure this as an MCP server in their agent:
 From this repository during development:
 
 ```bash
-bun bin/computer-use-mcp.ts
+bun src/bin/computer-use-mcp.ts
 ```
 
 To run the local checkout as an MCP server, point your client at the repo entry with `bun` (replace `<project_root>` with the absolute path to this repository):
@@ -55,7 +55,7 @@ To run the local checkout as an MCP server, point your client at the repo entry 
 ```json
 "computer_use": {
   "type": "local",
-  "command": ["bun", "<project_root>/bin/computer-use-mcp.ts"],
+  "command": ["bun", "<project_root>/src/bin/computer-use-mcp.ts"],
   "enabled": true
 }
 ```

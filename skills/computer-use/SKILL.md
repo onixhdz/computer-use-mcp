@@ -1,11 +1,13 @@
 ---
 name: computer-use
-description: Control local macOS apps through the Computer Use MCP server. Use for tasks that require reading or operating app UI by listing apps, reading accessibility state, clicking, typing, scrolling, dragging, pressing keys, selecting text, performing secondary actions, or setting values.
+description: Controls local macOS apps through the Computer Use MCP server. Trigger this skill whenever a task requires operating a GUI app on the user's Mac, such as driving a browser, desktop app, or system UI; reading what is currently on screen; or any request to click, type, scroll, drag, press keys, select text, set values, or otherwise interact with an app's interface. Also trigger it when the user names a specific app to control or asks the agent to "use the computer", "use the screen", or act on their behalf in the desktop environment.
 ---
 
-# Computer Use
+## When to use
 
-Computer Use is a local macOS MCP server that lets an agent read app UI through the accessibility tree and operate it with real input events. Prefer a more specific tool or API when one can complete the task; use Computer Use for app interactions that are not exposed through a better interface.
+Use Computer Use when the task is about operating a GUI app on the user's Mac (browser, desktop app, or system UI), reading current on-screen state, or interacting with an interface (click, type, scroll, drag, keys, select, set values). A non-GUI path is preferable only when it fully completes the task without touching the UI (for example, a plain shell command, file edit, or API call that does not need the app's interface).
+
+Once a task is being carried out through Computer Use, stay within Computer Use for the GUI portion of that task. Do not switch to native or shell tools to shortcut a step that the user asked to be done in the app (for example, do not edit a file on disk, hit an HTTP API, or script around the UI when the user wants the action performed in the running app). If a native tool genuinely is the better path for the whole task, say so and confirm with the user before leaving the UI.
 
 Because Computer Use operates directly in the user's local environment and can affect apps, files, accounts, or third-party services, follow the confirmation policy below before taking risky actions.
 

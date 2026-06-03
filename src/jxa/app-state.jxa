@@ -49,6 +49,8 @@ function statefulRole(role) {
 }
 if (!pid) {
 	result = "ERROR: app not found or not running: " + TARGET;
+} else if (!$.AXIsProcessTrusted()) {
+	result = "ERROR: " + axErr(-25211);
 } else {
 	const appEl = $.AXUIElementCreateApplication(pid);
 	const enableErr = enableAx(appEl);
