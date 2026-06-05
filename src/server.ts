@@ -9,6 +9,7 @@ import {
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { executeComputerUseAction } from "./actions.js";
+import { clearScriptCache } from "./backend.js";
 import { computerUseTools } from "./tools.js";
 import { type CoreResult } from "./types.js";
 
@@ -32,6 +33,9 @@ export function createComputerUseMcpServer(): McpServer {
       ].join(" "),
     },
   );
+  // Reload JXA from disk whenever a client (re)connects, so edits take effect
+  // without restarting the server process.
+  server.server.oninitialized = () => clearScriptCache();
   // Hand-rolled JSON Schema means McpServer's registerTool helpers add nothing; use raw handlers.
   server.server.setRequestHandler(ListToolsRequestSchema, () => ({
     tools: computerUseTools.map((tool) => ({

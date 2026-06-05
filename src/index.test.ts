@@ -562,6 +562,29 @@ describe("computer-use core", () => {
     expect(firstText(result)).toContain("Finder");
   });
 
+  test("threads window_id into JXA params", async () => {
+    const backend = mockBackendSequence([
+      finderBefore,
+      '{"ok":true,"message":"clicked","delivery":"background"}',
+      finderBefore,
+    ]);
+    await executeComputerUseAction(
+      "click",
+      { app: "Finder", x: 1, y: 1, window_id: 6122 },
+      { backend },
+    );
+    expect(backend.calls.some((c) => c.includes('"windowId":6122'))).toBe(true);
+  });
+
+  test("strips WindowId from labels and diff", () => {
+    const tree = `App: Test (pid 1)\n0 window MyWin WindowId: 6122 Position: 0,0 Size: 100x100`;
+    const labels = [...normalizeAppState("Test", tree).facts.values()].map(
+      (f) => f.label,
+    );
+    expect(labels).toContain("MyWin");
+    expect(labels.some((l) => l.includes("WindowId"))).toBe(false);
+  });
+
   test("provides a local MCP config on macOS", () => {
     const config = getComputerUseMcpServerConfig();
     if (process.platform === "darwin") {

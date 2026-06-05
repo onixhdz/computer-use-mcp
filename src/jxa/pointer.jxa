@@ -4,9 +4,8 @@
 //
 // Background-first: click/drag are delivered to the target window WITHOUT moving
 // the user's physical cursor or raising the window, using the SkyLight recipe
-// (field stamps + window-local stamp + off-screen primer + focus-without-raise),
-// posted via both SLEventPostToPid (Chromium/Catalyst) and CGEventPostToPid
-// (AppKit). The physical cursor is used ONLY when allow_cursor_takeover is true,
+// (field stamps + window-local stamp + off-screen primer + focus-without-raise).
+// The physical cursor is used ONLY when allow_cursor_takeover is true,
 // which the model must set after the user grants permission. If the background
 // path is unavailable, this returns a clear error instead of grabbing the cursor.
 // Coordinates are app-window screenshot pixels, mapped to points with the
@@ -69,17 +68,28 @@ function stamp(ev, pid, wid, phase, clickState, group, button) {
 function postBg(pid, wid, type, gp, lx, ly, button, phase, clickState, group) {
 	const ev = $.CGEventCreateMouseEvent(src, type, gp, button);
 	stamp(ev, pid, wid, phase, clickState, group, button);
+	// Click count must ride the standard CGEvent field too, not just the SkyLight
+	// field, so Chromium sees the 2nd click as a double-click. Post once: sending
+	// the same event through both SkyLight and CGEventPostToPid duplicates the
+	// sequence and breaks DOM dblclick detection.
+	if (clickState) $.CGEventSetIntegerValueField(ev, $.kCGMouseEventClickState, clickState);
 	$.CGEventSetWindowLocation(ev, lx, ly);
 	$.SLEventPostToPid(pid, ev);
-	$.CGEventPostToPid(pid, ev);
 }
 
 // Open Chromium's user-activation gate with an off-screen primer click that hits
 // no DOM element, so the subsequent real gesture is trusted.
-function primer(pid, wid, button, group) {
-	const off = $.CGPointMake(-1, -1);
+function primer(pid, win, button, group) {
+	const wid = win.id;
+	const off = $.CGPointMake(win.x - 1, win.y - 1);
 	postBg(pid, wid, downType(button), off, -1, -1, button, 1, 1, group);
 	postBg(pid, wid, upType(button), off, -1, -1, button, 2, 1, group);
+}
+
+function focusToken(pid, wid) {
+	const front = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+	if (front && front.processIdentifier === pid) return null;
+	return focusWithoutRaise(pid, wid);
 }
 
 function bgClick(pid, win, scale, x, y, button, clicks) {
@@ -88,10 +98,10 @@ function bgClick(pid, win, scale, x, y, button, clicks) {
 	const gp = global(win, scale, x, y);
 	const lx = Number(x) / scale.x;
 	const ly = Number(y) / scale.y;
-	const token = focusWithoutRaise(pid, wid);
+	const token = focusToken(pid, wid);
 	try {
 		postBg(pid, wid, $.kCGEventMouseMoved, gp, lx, ly, button, 2, 0, group);
-		primer(pid, wid, button, group);
+		primer(pid, win, button, group);
 		delay(0.1);
 		for (let i = 1; i <= clicks; i++) {
 			postBg(pid, wid, downType(button), gp, lx, ly, button, 3, i, group);
@@ -110,10 +120,10 @@ function bgDrag(pid, win, scale, fx, fy, tx, ty) {
 	const from = global(win, scale, fx, fy);
 	const flx = Number(fx) / scale.x;
 	const fly = Number(fy) / scale.y;
-	const token = focusWithoutRaise(pid, wid);
+	const token = focusToken(pid, wid);
 	try {
 		postBg(pid, wid, $.kCGEventMouseMoved, from, flx, fly, button, 2, 0, group);
-		primer(pid, wid, button, group);
+		primer(pid, win, button, group);
 		delay(0.1);
 		postBg(pid, wid, downType(button), from, flx, fly, button, 3, 1, group);
 		const steps = 18;
@@ -140,7 +150,7 @@ let result;
 if (!pid) {
 	result = JSON.stringify({ ok: false, error: "app not found or not running: " + TARGET });
 } else {
-	const win = findWindow(pid);
+	const win = findWindow(pid, P.windowId);
 	if (!win) {
 		result = JSON.stringify({ ok: false, error: "no window found for app: " + TARGET });
 	} else if (P.op === "scroll") {

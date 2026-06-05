@@ -135,11 +135,14 @@ if (!pid) {
 		if (found) $.AXUIElementSetAttributeValue(found, $("AXFocused"), $.NSNumber.numberWithBool(true));
 	}
 
-	// Background keystrokes only reach the target if its window holds input focus.
-	// Mirror the pointer path: focus the window without raising it for the duration
-	// of the keys, then restore the previous focus. No-op (null) when SkyLight is
-	// unavailable, leaving the plain CGEventPostToPid delivery as the fallback.
-	const win = findWindow(pid);
+	// Keyboard is focus-bound, so only the focused window receives keys. When the
+	// target app is backgrounded, focus its frontmost window without raising it for
+	// the duration, then restore. When the app is already frontmost we must NOT
+	// touch focus: re-focusing the window blurs a focused in-page editor (e.g. a
+	// canvas text box), so keystrokes would never reach it.
+	const front = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+	const appIsFrontmost = front && front.processIdentifier === pid;
+	const win = appIsFrontmost ? null : findWindow(pid);
 	const focusToken = win ? focusWithoutRaise(pid, win.id) : null;
 
 	let out;

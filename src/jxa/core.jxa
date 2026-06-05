@@ -178,23 +178,38 @@ function axPid(el) {
 	return $.AXUIElementGetPid(el, out) === 0 ? Number(out[0]) : 0;
 }
 
-// Frontmost on-screen, layer-0 window for a pid: { id, x, y, w, h } or null. The
-// on-screen list is front-to-back, so the first match is the frontmost window.
-function findWindow(pid) {
+// Real on-screen windows for a pid, front-to-back. Helper surfaces (toolbar
+// strips, 1x1 probes) are skipped by size so frontmost and matching see real
+// windows only.
+function cgWindows(pid) {
 	const arr = ObjC.castRefToObject($.CGWindowListCopyWindowInfo(17, 0));
 	const c = arr ? Number(arr.count) : 0;
+	const out = [];
 	for (let i = 0; i < c; i++) {
 		const d = arr.objectAtIndex(i);
 		if (Number(ObjC.unwrap(d.objectForKey("kCGWindowOwnerPID"))) !== pid) continue;
 		if (Number(ObjC.unwrap(d.objectForKey("kCGWindowLayer"))) !== 0) continue;
 		const b = d.objectForKey("kCGWindowBounds");
-		return {
+		const w = Number(ObjC.unwrap(b.objectForKey("Width")));
+		const h = Number(ObjC.unwrap(b.objectForKey("Height")));
+		if (w < 200 || h < 200) continue;
+		out.push({
 			id: Number(ObjC.unwrap(d.objectForKey("kCGWindowNumber"))),
 			x: Number(ObjC.unwrap(b.objectForKey("X"))),
 			y: Number(ObjC.unwrap(b.objectForKey("Y"))),
-			w: Number(ObjC.unwrap(b.objectForKey("Width"))),
-			h: Number(ObjC.unwrap(b.objectForKey("Height"))),
-		};
+			w: w,
+			h: h,
+		});
+	}
+	return out;
+}
+
+// Window matching windowId, else the frontmost (first).
+function findWindow(pid, windowId) {
+	const wins = cgWindows(pid);
+	for (let i = 0; i < wins.length; i++) {
+		if (windowId != null && wins[i].id !== Number(windowId)) continue;
+		return wins[i];
 	}
 	return null;
 }

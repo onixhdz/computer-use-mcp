@@ -62,10 +62,26 @@ if (!pid) {
 	else if (enableErr === 0) delay(0.5);
 
 	const appName = str(castAttr(appEl, "AXTitle")) || TARGET;
-	// Convert each element's global AX point/size into the window-pixel space
-	// click/drag use, so coordinates are directly actionable.
-	const geomWin = findWindow(pid);
-	const geomScale = geomWin ? windowScale(geomWin) : null;
+	// Per-window coordinates: each node's Position/Size is relative to its own
+	// window's origin/scale. Each window node is matched to its CGWindow by bounds,
+	// consuming matches so exactly-overlapping windows pair in z-order; an unmatched
+	// window (minimized/offscreen/tiny) gets no id and never shifts the others.
+	const pidWins = cgWindows(pid);
+	const winUsed = [];
+	let curWin = null;
+	let curScale = null;
+	function matchWin(pos, size) {
+		if (!pos) return null;
+		for (let i = 0; i < pidWins.length; i++) {
+			if (winUsed[i]) continue;
+			const w = pidWins[i];
+			if (Math.abs(w.x - pos.a) <= 10 && Math.abs(w.y - pos.b) <= 10 && (!size || (Math.abs(w.w - size.a) <= 10 && Math.abs(w.h - size.b) <= 10))) {
+				winUsed[i] = true;
+				return w;
+			}
+		}
+		return null;
+	}
 	const lines = ["App: " + appName + " (pid " + pid + ")"];
 	const res = walkTree(appEl, MAX_NODES, function (el, depth, idx) {
 		const role = str(castAttr(el, "AXRole"));
@@ -118,13 +134,16 @@ if (!pid) {
 		if (identifier) line += " Identifier: " + identifier;
 		if (marked) line += " Mark: " + shortText(marked);
 		if (acts.length) line += " Secondary Actions: " + acts.join(", ");
-		if (geomWin) {
-			const pos = axGeom(el, "AXPosition");
-			if (pos) {
-				line += " Position: " + Math.round((pos.a - geomWin.x) * geomScale.x) + "," + Math.round((pos.b - geomWin.y) * geomScale.y);
-				const sz = axGeom(el, "AXSize");
-				if (sz) line += " Size: " + Math.round(sz.a * geomScale.x) + "x" + Math.round(sz.b * geomScale.y);
-			}
+		const pos = axGeom(el, "AXPosition");
+		const sz = axGeom(el, "AXSize");
+		if (depth === 0) {
+			curWin = matchWin(pos, sz);
+			curScale = curWin ? windowScale(curWin) : null;
+			if (curWin) line += " WindowId: " + curWin.id;
+		}
+		if (curWin && curScale && pos) {
+			line += " Position: " + Math.round((pos.a - curWin.x) * curScale.x) + "," + Math.round((pos.b - curWin.y) * curScale.y);
+			if (sz) line += " Size: " + Math.round(sz.a * curScale.x) + "x" + Math.round(sz.b * curScale.y);
 		}
 		lines.push(line);
 	});

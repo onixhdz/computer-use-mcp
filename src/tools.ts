@@ -74,6 +74,9 @@ export const computerUseTools: ToolSpec[] = [
           "Use it to verify rendering or to inspect canvas, video, or other content not exposed in the accessibility tree.",
         ].join(" "),
       ),
+      window_id: numberProp(
+        "WindowId (from a prior get_app_state) to screenshot; captures that window even when it is occluded or not frontmost. Omitted screenshots the frontmost window.",
+      ),
     }),
     annotations: {
       title: "Get App State",
@@ -97,6 +100,9 @@ export const computerUseTools: ToolSpec[] = [
       ),
       x: numberProp("X coordinate in the app-window screenshot."),
       y: numberProp("Y coordinate in the app-window screenshot."),
+      window_id: numberProp(
+        "Target a specific window by its WindowId from get_app_state. Omitted targets the frontmost window.",
+      ),
       mouse_button: stringProp("Mouse button.", {
         enum: ["left", "right", "middle"],
       }),
@@ -230,6 +236,9 @@ export const computerUseTools: ToolSpec[] = [
       to_y: numberProp("End Y coordinate in app-window screenshot."),
       allow_cursor_takeover: booleanProp(
         "Only after the user grants permission: move the real cursor to perform the drag. Default false (background, never moves the cursor).",
+      ),
+      window_id: numberProp(
+        "Target a specific window by its WindowId from get_app_state. Omitted targets the frontmost window.",
       ),
     }),
     annotations: {

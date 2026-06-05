@@ -7,6 +7,13 @@ const OSASCRIPT = "/usr/bin/osascript";
 const MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 const scriptCache = new Map<string, string>();
+
+// Drop cached JXA so the next call re-reads it from disk (e.g. after an edit,
+// on client (re)connect). Avoids needing a full server restart.
+export function clearScriptCache(): void {
+  scriptCache.clear();
+}
+
 export function script(name: string): string {
   const cached = scriptCache.get(name);
   if (cached !== undefined) return cached;
@@ -81,9 +88,10 @@ async function runJxa(code: string, signal?: AbortSignal): Promise<string> {
 async function captureWindow(
   app: string,
   signal?: AbortSignal,
+  windowId?: number,
 ): Promise<Buffer> {
   const base64 = await runJxa(
-    coreScript("capture-window.jxa", { app }),
+    coreScript("capture-window.jxa", { app, windowId }),
     signal,
   );
   if (!base64)
@@ -91,9 +99,8 @@ async function captureWindow(
   return Buffer.from(base64, "base64");
 }
 
-// Memoized once trusted; while untrusted every call re-checks, so granting
-// permission works on the next call. Retry absorbs the spurious first-call
-// false before TCC initializes.
+// Memoized once trusted; re-checks while untrusted so granting works next call.
+// Retry absorbs the spurious first-call false before TCC initializes.
 let axTrusted = false;
 async function accessibilityTrusted(): Promise<boolean> {
   if (axTrusted) return true;

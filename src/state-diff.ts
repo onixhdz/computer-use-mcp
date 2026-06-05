@@ -166,6 +166,7 @@ function truncateText(text: string, max = MAX_FACT_TEXT): string {
 
 function stripTrailingFields(line: string): string {
   return line
+    .replace(/(?:^| )WindowId:.*$/, "")
     .replace(/(?:^| )Position:.*$/, "")
     .replace(/(?:^| )Secondary Actions:.*$/, "")
     .replace(/(?:^| )Selected Text:.*$/, "")

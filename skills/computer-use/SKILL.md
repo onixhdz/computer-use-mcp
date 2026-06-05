@@ -76,6 +76,16 @@ Notes:
 - `text` steps are ASCII-only (same as `type_text`); use `set_value` for bulk or non-ASCII content.
 - Pass `element_index` to focus a node once before the sequence; element indices are still snapshot-scoped, so re-snapshot after the sequence to verify the result.
 
+### Editing text on a canvas (Excalidraw, whiteboards, drawing apps)
+
+Canvas-drawn shapes have no settable AX text field, so `set_value`/`select_text` do not apply. Edit their text with coordinate clicks plus `key_sequence`:
+
+1. `click` the shape once (`click_count: 1`) to select it.
+2. `click` the same point again with `click_count: 2` to enter text-edit mode.
+3. `key_sequence` with `[{ "key": "cmd+a" }, { "text": "New label" }, { "key": "escape" }]` to replace the text and commit.
+
+The editor only keeps focus while the app is frontmost, so keystrokes aimed at a backgrounded window can be dropped or interpreted as canvas shortcuts; bring the app forward before typing.
+
 ### Verify
 
 - After a mutating action, re-read `get_app_state` to confirm the expected change before continuing.

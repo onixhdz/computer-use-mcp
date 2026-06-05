@@ -51,7 +51,11 @@ export type ToolSpec = {
 export type ComputerUseBackend = {
   platform?: NodeJS.Platform;
   runJxa(code: string, signal?: AbortSignal): Promise<string>;
-  captureWindow(app: string, signal?: AbortSignal): Promise<Buffer>;
+  captureWindow(
+    app: string,
+    signal?: AbortSignal,
+    windowId?: number,
+  ): Promise<Buffer>;
   // Omitted backends are treated as trusted (no gating).
   accessibilityTrusted?(): Promise<boolean>;
 };

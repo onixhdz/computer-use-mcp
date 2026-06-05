@@ -149,6 +149,10 @@ function app(args: Record<string, unknown>): string {
   return String(args.app ?? "");
 }
 
+function windowId(args: Record<string, unknown>): number | undefined {
+  return args.window_id == null ? undefined : Number(args.window_id);
+}
+
 const clampLimit = (value: unknown, fallback: number, max: number): number =>
   Math.min(Math.max(1, Number(value ?? fallback)), max);
 
@@ -241,7 +245,11 @@ async function runWithStateDiff(
         diffDetails = { available: true, ...diff, text: undefined };
         if (!diff.added && !diff.removed && !diff.changed) {
           try {
-            const image = await backend.captureWindow(app(args), signal);
+            const image = await backend.captureWindow(
+              app(args),
+              signal,
+              windowId(args),
+            );
             result.content.push({
               type: "image",
               data: image.toString("base64"),
@@ -332,7 +340,7 @@ async function runGetAppState(
   };
   seedBaseline(backend, app(args), tree, maxDepth, maxNodes);
   if (args.screenshot) {
-    const image = await backend.captureWindow(app(args), signal);
+    const image = await backend.captureWindow(app(args), signal, windowId(args));
     content.push({
       type: "image",
       data: image.toString("base64"),
@@ -428,7 +436,7 @@ async function runPointerAction(
   signal?: AbortSignal,
 ): Promise<CoreResult> {
   const stdout = await backend.runJxa(
-    coreScript("pointer.jxa", { ...args, op }),
+    coreScript("pointer.jxa", { ...args, op, windowId: windowId(args) }),
     signal,
   );
   const parsed = parseActionJson(stdout, op);
