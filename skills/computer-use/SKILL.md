@@ -78,13 +78,13 @@ Notes:
 
 ### Editing text on a canvas (Excalidraw, whiteboards, drawing apps)
 
-Canvas-drawn shapes have no settable AX text field, so `set_value`/`select_text` do not apply. Edit their text with coordinate clicks plus `key_sequence`:
+Canvas-drawn shapes have no settable AX text field, so `set_value`/`select_text` do not apply. Edit their text with coordinate clicks plus `key_sequence`. Coordinates are pixels of the `get_app_state(screenshot: true)` image — click the pixel you see on the shape.
 
-1. `click` the shape once (`click_count: 1`) to select it.
-2. `click` the same point again with `click_count: 2` to enter text-edit mode.
-3. `key_sequence` with `[{ "key": "cmd+a" }, { "text": "New label" }, { "key": "escape" }]` to replace the text and commit.
-
-The editor only keeps focus while the app is frontmost, so keystrokes aimed at a backgrounded window can be dropped or interpreted as canvas shortcuts; bring the app forward before typing.
+1. Bring the app to the front first (text editing needs it frontmost; a backgrounded editor loses focus and your keystrokes become canvas shortcuts).
+2. `click` the shape once (`click_count: 1`) to select it; confirm a "Selected shape actions" panel appears in the next `get_app_state`.
+3. `click` the same point again with `click_count: 2` to enter text-edit mode.
+4. Before typing, confirm edit mode opened: `get_app_state` shows a `text area` node with the shape's current text. If it did not, repeat step 3 — do not type, or the keys become tool shortcuts.
+5. `key_sequence` with `[{ "key": "cmd+a" }, { "text": "New label" }, { "key": "escape" }]` to replace the text and commit.
 
 ### Verify
 

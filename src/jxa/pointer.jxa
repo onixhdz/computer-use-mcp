@@ -8,8 +8,8 @@
 // The physical cursor is used ONLY when allow_cursor_takeover is true,
 // which the model must set after the user grants permission. If the background
 // path is unavailable, this returns a clear error instead of grabbing the cursor.
-// Coordinates are app-window screenshot pixels, mapped to points with the
-// window display's backing scale (no capture; see windowScale in core.jxa).
+// Coordinates are returned-screenshot pixels, mapped to window points with
+// coordScale (see core.jxa), so the model can click the pixel it sees.
 
 ObjC.import("CoreGraphics");
 ObjC.import("AppKit");
@@ -98,6 +98,10 @@ function bgClick(pid, win, scale, x, y, button, clicks) {
 	const gp = global(win, scale, x, y);
 	const lx = Number(x) / scale.x;
 	const ly = Number(y) / scale.y;
+	// In-page editors only open when their app is frontmost (focus-without-raise
+	// is not enough for web content), so activate for double-clicks. Single clicks
+	// stay background.
+	if (clicks >= 2) activateApp(pid);
 	const token = focusToken(pid, wid);
 	try {
 		postBg(pid, wid, $.kCGEventMouseMoved, gp, lx, ly, button, 2, 0, group);
@@ -172,7 +176,7 @@ if (!pid) {
 	} else if (P.op === "click") {
 		const button = buttonId(P.mouse_button || "left");
 		const clicks = Math.max(1, Math.min(3, Number(P.click_count || 1)));
-		const scale = windowScale(win);
+		const scale = coordScale(win);
 		if (takeover) {
 			const gp = global(win, scale, P.x, P.y);
 			for (let i = 1; i <= clicks; i++) {
@@ -188,7 +192,7 @@ if (!pid) {
 		if (!result)
 			result = JSON.stringify({ ok: true, message: "clicked at " + P.x + "," + P.y, x: P.x, y: P.y, button: P.mouse_button || "left", click_count: clicks, delivery: takeover ? "physical" : "background" });
 	} else if (P.op === "drag") {
-		const scale = windowScale(win);
+		const scale = coordScale(win);
 		if (takeover) {
 			const button = 0;
 			const from = global(win, scale, P.from_x, P.from_y);

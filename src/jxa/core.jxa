@@ -241,6 +241,52 @@ function windowScale(win) {
 	return { x: s, y: s };
 }
 
+// Cap on returned screenshot pixels so the model's API delivers it un-resized;
+// otherwise its downscale desyncs the coordinates the model reads from the click
+// space. The same factor maps screenshot pixels to window points (coordScale).
+const MAX_IMAGE_PIXELS = 1000000;
+
+function displayFactor(win, b) {
+	if (b === undefined) b = windowScale(win).x;
+	const area = win.w * b * (win.h * b);
+	if (!area) return 1;
+	return Math.min(1, Math.sqrt(MAX_IMAGE_PIXELS / area));
+}
+
+// Screenshot pixels per window point: the one coordinate space shared by the
+// screenshot, click/drag input, and emitted Position/Size.
+function coordScale(win) {
+	const b = windowScale(win).x;
+	const s = b * displayFactor(win, b);
+	return { x: s, y: s };
+}
+
+// Raise an app to the foreground and wait until it is frontmost. Web-content
+// editors (e.g. canvas text) only take focus when their app is active, so a
+// double-click needs this. Uses the Apple event `activate` because
+// NSRunningApplication activation is restricted cross-process on current macOS.
+function activateApp(pid) {
+	const ws = $.NSWorkspace.sharedWorkspace;
+	const front = ws.frontmostApplication;
+	if (front && front.processIdentifier === pid) return true;
+	const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(pid);
+	const bid = app ? str(app.bundleIdentifier) : null;
+	if (!bid) return false;
+	const scr = $.NSAppleScript.alloc.initWithSource($('tell application id "' + bid + '" to activate'));
+	scr.executeAndReturnError(Ref());
+	// Activation is async; poll briefly. Capped low so an app that ignores
+	// `activate` adds <1s rather than stalling.
+	for (let i = 0; i < 16; i++) {
+		const f = ws.frontmostApplication;
+		if (f && f.processIdentifier === pid) {
+			delay(0.2); // let the window become key and web content take focus
+			return true;
+		}
+		delay(0.05);
+	}
+	return false;
+}
+
 // Private SkyLight/CoreGraphics SPIs for focus-without-raise and background
 // pointer delivery. Bound lazily so an unsupported macOS falls back instead of
 // failing. Offsets/fields are macOS-version-sensitive (validated on macOS 26).

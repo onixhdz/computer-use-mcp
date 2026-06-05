@@ -10,8 +10,23 @@ let result = "";
 if (pid) {
 	const win = findWindow(pid, P.windowId);
 	if (win) {
-		const img = windowImage(win);
+		let img = windowImage(win);
 		if (img) {
+			// Keep the image under the model's size limit so it is delivered un-resized
+			// and its pixels match the click/drag coordinate space.
+			const d = displayFactor(win);
+			if (d < 1) {
+				const tw = Math.max(1, Math.round(Number($.CGImageGetWidth(img)) * d));
+				const th = Math.max(1, Math.round(Number($.CGImageGetHeight(img)) * d));
+				const cs = $.CGColorSpaceCreateDeviceRGB();
+				const ctx = $.CGBitmapContextCreate($(), tw, th, 8, 0, cs, $.kCGImageAlphaPremultipliedLast);
+				if (ctx) {
+					$.CGContextSetInterpolationQuality(ctx, $.kCGInterpolationHigh);
+					$.CGContextDrawImage(ctx, $.CGRectMake(0, 0, tw, th), img);
+					const scaled = $.CGBitmapContextCreateImage(ctx);
+					if (scaled) img = scaled;
+				}
+			}
 			const rep = $.NSBitmapImageRep.alloc.initWithCGImage(img);
 			const data = rep.representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $());
 			if (data) result = ObjC.unwrap(data.base64EncodedStringWithOptions(0));

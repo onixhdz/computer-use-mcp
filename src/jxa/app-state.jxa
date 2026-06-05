@@ -138,7 +138,7 @@ if (!pid) {
 		const sz = axGeom(el, "AXSize");
 		if (depth === 0) {
 			curWin = matchWin(pos, sz);
-			curScale = curWin ? windowScale(curWin) : null;
+			curScale = curWin ? coordScale(curWin) : null;
 			if (curWin) line += " WindowId: " + curWin.id;
 		}
 		if (curWin && curScale && pos) {
