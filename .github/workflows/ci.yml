@@ -30,7 +30,7 @@ jobs:
         run: bun run lint
 
       - name: Test
-        run: bun test index.test.ts
+        run: bun run test
 
       - name: Build
         run: bun run build

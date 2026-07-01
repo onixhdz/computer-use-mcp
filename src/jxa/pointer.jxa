@@ -1,6 +1,6 @@
 // Pointer and scroll input. Requires core.jxa concatenated ahead of it.
 // Params: app, op, x/y, from_x/from_y/to_x/to_y, mouse_button, click_count,
-// direction, pages, allow_cursor_takeover.
+// direction, amount, allow_cursor_takeover.
 //
 // Background-first: click/drag are delivered to the target window WITHOUT moving
 // the user's physical cursor or raising the window, using the SkyLight recipe
@@ -145,6 +145,26 @@ function bgDrag(pid, win, scale, fx, fy, tx, ty) {
 	}
 }
 
+function bgScroll(pid, win, dy, dx) {
+	const wid = win.id;
+	const group = Math.floor(Date.now() % 1000000) + 1;
+	const lx = Math.round(win.w / 2);
+	const ly = Math.round(win.h / 2);
+	const gp = $.CGPointMake(win.x + lx, win.y + ly);
+	const token = focusToken(pid, wid);
+	try {
+		const ev = $.CGEventCreateScrollWheelEvent(src, $.kCGScrollEventUnitLine, 2, dy, dx);
+		// Chromium ignores process-targeted wheel events without a window/location
+		// stamp. Give the wheel the same target metadata as background clicks/drags.
+		stamp(ev, pid, wid, 22, 0, group, 0);
+		$.CGEventSetLocation(ev, gp);
+		$.CGEventSetWindowLocation(ev, lx, ly);
+		$.SLEventPostToPid(pid, ev);
+	} finally {
+		endFocusWithoutRaise(token);
+	}
+}
+
 const TAKEOVER_HINT =
 	"Background pointer delivery is unavailable on this macOS (SkyLight SPIs did not load). Ask the user whether they allow taking control of the physical cursor; if they agree, retry with allow_cursor_takeover: true.";
 
@@ -158,20 +178,23 @@ if (!pid) {
 	if (!win) {
 		result = JSON.stringify({ ok: false, error: "no window found for app: " + TARGET });
 	} else if (P.op === "scroll") {
-		// Scroll is already background via CGEventPostToPid (no cursor move).
-		const pages = Math.max(0.1, Math.min(10, Number(P.pages || 1)));
-		const amount = Math.round(10 * pages);
+		const amount = Math.max(0.1, Math.min(10, Number(P.amount || 1)));
+		const lines = Math.round(10 * amount);
 		let dx = 0;
 		let dy = 0;
-		if (P.direction === "up") dy = amount;
-		else if (P.direction === "down") dy = -amount;
-		else if (P.direction === "left") dx = amount;
-		else if (P.direction === "right") dx = -amount;
+		if (P.direction === "up") dy = lines;
+		else if (P.direction === "down") dy = -lines;
+		else if (P.direction === "left") dx = lines;
+		else if (P.direction === "right") dx = -lines;
 		else result = JSON.stringify({ ok: false, error: "unknown direction: " + P.direction });
 		if (!result) {
-			const ev = $.CGEventCreateScrollWheelEvent(src, $.kCGScrollEventUnitLine, 2, dy, dx);
-			$.CGEventPostToPid(pid, ev);
-			result = JSON.stringify({ ok: true, message: "scrolled " + P.direction, direction: P.direction, pages: pages, delivery: "background" });
+			if (skylightReady()) {
+				bgScroll(pid, win, dy, dx);
+			} else {
+				const ev = $.CGEventCreateScrollWheelEvent(src, $.kCGScrollEventUnitLine, 2, dy, dx);
+				$.CGEventPostToPid(pid, ev);
+			}
+			result = JSON.stringify({ ok: true, message: "scrolled " + P.direction, direction: P.direction, amount: amount, delivery: "background" });
 		}
 	} else if (P.op === "click") {
 		const button = buttonId(P.mouse_button || "left");

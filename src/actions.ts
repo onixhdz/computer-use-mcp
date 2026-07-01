@@ -340,7 +340,11 @@ async function runGetAppState(
   };
   seedBaseline(backend, app(args), tree, maxDepth, maxNodes);
   if (args.screenshot) {
-    const image = await backend.captureWindow(app(args), signal, windowId(args));
+    const image = await backend.captureWindow(
+      app(args),
+      signal,
+      windowId(args),
+    );
     content.push({
       type: "image",
       data: image.toString("base64"),
