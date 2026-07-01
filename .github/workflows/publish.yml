@@ -49,7 +49,7 @@ jobs:
         run: bun run lint
 
       - name: Test
-        run: bun test index.test.ts
+        run: bun run test
 
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@latest

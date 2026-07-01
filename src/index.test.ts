@@ -108,10 +108,11 @@ describe("computer-use core", () => {
       computerUseTools.find((tool) => tool.name === "get_app_state")
         ?.inputSchema.required,
     ).toEqual(["app"]);
-    expect(
-      computerUseTools.find((tool) => tool.name === "scroll")?.inputSchema
-        .properties.element_index,
-    ).toBeUndefined();
+    const scrollSchema = computerUseTools.find((tool) => tool.name === "scroll")
+      ?.inputSchema.properties;
+    expect(scrollSchema?.element_index).toBeUndefined();
+    expect(scrollSchema?.pages).toBeUndefined();
+    expect(scrollSchema?.amount).toBeDefined();
   });
 
   test("returns validation errors through the core envelope", async () => {
@@ -143,6 +144,14 @@ describe("computer-use core", () => {
       direction: "diagonal",
     });
     expect(invalidDirection.details.code).toBe("validation_error");
+
+    const oldPagesArgument = await executeComputerUseAction("scroll", {
+      app: "Finder",
+      direction: "down",
+      pages: 1,
+    });
+    expect(oldPagesArgument.details.code).toBe("validation_error");
+    expect(firstText(oldPagesArgument)).toContain("unknown argument pages");
 
     const tooLong = await executeComputerUseAction("type_text", {
       app: "Finder",
