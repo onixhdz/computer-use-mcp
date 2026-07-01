@@ -210,7 +210,9 @@ export const computerUseTools: ToolSpec[] = [
       direction: stringProp("Scroll direction.", {
         enum: ["up", "down", "left", "right"],
       }),
-      pages: numberProp("Pages or page fraction to scroll. Default 1."),
+      amount: numberProp(
+        "Scroll amount multiplier. Default 1; 0.1 is tiny, 10 is large.",
+      ),
     }),
     annotations: {
       title: "Scroll",
